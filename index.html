@@ -1,0 +1,2637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bad Case Rubrics Review Viewer</title>
+
+<!-- Applies the saved theme before first paint. prefers-color-scheme is never read:
+     the toggle is the sole theme driver (spec, Theming). -->
+<script>
+  try {
+    var ui = JSON.parse(localStorage.getItem('brv:ui') || '{}');
+    if (ui.theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch (e) { /* first run, or storage blocked */ }
+</script>
+
+<link rel="stylesheet" href="vendor/katex/katex.min.css" />
+<link rel="stylesheet" href="vendor/highlight/github.min.css" id="hljs-light" />
+<link rel="stylesheet" href="vendor/highlight/github-dark.min.css" id="hljs-dark" disabled />
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   House Tokens — .claude/skills/uiux/uiux reference.md
+   :root carries light values. Dark via [data-theme="dark"] on <html>.
+   No component hardcodes hex.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --surface:        #FFFFFF;
+  --surface-raised: #F4F4F4;
+  --border:         #D4D4D4;
+  --border-strong:  #B3B3B3;
+
+  --text:        #2B2B2B;
+  --text-muted:  #5A5A5A;
+  --text-faint:  #B3B3B3;
+
+  --primary:        #2266C4;
+  --primary-text:   #FFFFFF;
+  --primary-hover:  #1C57A8;
+
+  --danger:         #CD1C18;
+  --danger-text:    #FFFFFF;
+  --danger-hover:   #B01713;
+
+  --success:        #48872B;
+  --success-text:   #FFFFFF;
+  --success-hover:  #3C7324;
+
+  --focus-ring:     #2266C4;
+
+  --code-bg:        #F4F4F4;
+  --code-text:      #2B2B2B;
+
+  /* derived, tool-local */
+  --warn-bg:        #FFF4E0;
+  --warn-border:    #E0A030;
+  --tint-misaligned:#FDF1F1;
+  --chip-bg:        #ECECEC;
+
+  --font-ui:   system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", "Liberation Mono", Menlo, monospace;
+
+  /* runtime-adjustable layout */
+  --prompt-h: 35vh;
+
+  /* z-index scale */
+  --z-sticky: 20;
+  --z-pop:    40;
+  --z-modal:  100;
+  --z-drop:   1000;
+}
+
+html[data-theme="dark"] {
+  --surface:        #2B2B2B;
+  --surface-raised: #363636;
+  --border:         #4A4A4A;
+  --border-strong:  #B3B3B3;
+
+  --text:        #FFFFFF;
+  --text-muted:  #D4D4D4;
+  --text-faint:  #B3B3B3;
+
+  --primary:        #2266C4;
+  --primary-text:   #FFFFFF;
+  --primary-hover:  #3D7AD1;
+
+  --danger:         #CD1C18;
+  --danger-text:    #FFFFFF;
+  --danger-hover:   #E0322E;
+
+  --success:        #48872B;
+  --success-text:   #FFFFFF;
+  --success-hover:  #57A033;
+
+  --focus-ring:     #4D8AE0;
+
+  --code-bg:        #1F1F1F;
+  --code-text:      #FFFFFF;
+
+  --warn-bg:        #3A3122;
+  --warn-border:    #E0A030;
+  --tint-misaligned:#3A2A2A;
+  --chip-bg:        #424242;
+}
+
+/* ── base ─────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+/* Several elements below set `display`, which beats the UA `[hidden]` rule and
+   would leave them painted while hidden. Everything here toggles via `hidden`. */
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--surface);
+  overflow: hidden;   /* #scrollArea is the only scroll region */
+}
+#app { display: flex; flex-direction: column; height: 100dvh; }
+
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.btn {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  min-height: 32px;
+  transition: background 150ms ease-out;
+}
+.btn:hover { background: var(--border); }
+.btn:disabled { cursor: not-allowed; color: var(--text-faint); background: var(--surface-raised); }
+.btn-primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-danger { background: var(--danger); color: var(--danger-text); border-color: var(--danger); font-weight: 600; }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-icon { padding: 4px 10px; min-width: 32px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--chip-bg); color: var(--text);
+  border-radius: 999px; padding: 1px 10px;
+  font-size: 12px; font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.chip b { font-weight: 600; color: var(--text-muted); }
+
+/* segmented language / raw toggles */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button {
+  background: var(--surface); border: 0; padding: 3px 10px;
+  font-size: 12px; cursor: pointer; min-height: 26px;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--primary); color: var(--primary-text); }
+.seg button:disabled { color: var(--text-faint); cursor: not-allowed; background: var(--surface-raised); }
+
+/* ── top bar ──────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  flex: 0 0 auto;
+}
+.topbar .nav-group { display: flex; align-items: center; gap: 6px; }
+.topbar .tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+.combobox { position: relative; min-width: 260px; }
+.combobox input {
+  width: 100%; padding: 6px 10px;
+  font-family: var(--font-mono); font-size: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+}
+.combobox .count {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; color: var(--text-muted); pointer-events: none;
+  background: var(--surface); padding-left: 6px;
+}
+.combobox ul {
+  position: absolute; z-index: var(--z-pop); top: calc(100% + 4px); left: 0; right: 0;
+  max-height: 340px; overflow-y: auto; margin: 0; padding: 4px;
+  list-style: none; background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+}
+.combobox li {
+  padding: 5px 8px; border-radius: 4px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 13px;
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.combobox li[aria-selected="true"], .combobox li.active { background: var(--primary); color: var(--primary-text); }
+.combobox li .rowno { color: var(--text-muted); font-size: 11px; }
+.combobox li[aria-selected="true"] .rowno, .combobox li.active .rowno { color: var(--primary-text); }
+
+.filebtn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 10px; background: var(--surface); cursor: pointer; font-size: 13px;
+}
+.filebtn input { max-width: 170px; font-size: 11px; }
+.filename { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+/* ── load report ──────────────────────────────────────────────────────── */
+.report {
+  flex: 0 0 auto;
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-border);
+  padding: 10px 14px;
+  font-size: 13px;
+  max-height: 25vh; overflow-y: auto;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.report .body { flex: 1; min-width: 0; }
+.report h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.report ul { margin: 0; padding-left: 18px; }
+.report li { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
+
+/* ── header strip ─────────────────────────────────────────────────────── */
+.headerstrip {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column; gap: 5px;
+}
+.headerstrip .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.headerstrip .caseid { font-family: var(--font-mono); font-weight: 700; font-size: 18px; }
+
+/* ── panels ───────────────────────────────────────────────────────────── */
+.panel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 12px; }
+.panel > header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  border-radius: 7px 7px 0 0;
+}
+.panel.collapsed > header { border-bottom: 0; border-radius: 7px; }
+.panel > header .title {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.panel > header .spacer { margin-left: auto; }
+.panel .body { padding: 10px 14px; overflow-x: auto; }
+.panel.collapsed .body { display: none; }
+
+.badge-fallback {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--text);
+}
+.inline-warn {
+  margin: 0 0 10px; padding: 6px 10px;
+  background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 6px;
+  font-size: 13px;
+}
+.inline-error {
+  margin: 0 0 10px; padding: 6px 10px;
+  border: 1px solid var(--danger); border-radius: 6px;
+  color: var(--danger); font-size: 13px; font-weight: 600;
+}
+
+/* pinned prompt */
+.pinned {
+  flex: 0 0 auto;
+  border-bottom: 2px solid var(--border-strong);
+  background: var(--surface);
+  position: relative;
+}
+.pinned .panel { margin: 10px 14px; }
+.pinned .body { max-height: var(--prompt-h); overflow-y: auto; }
+.pinned.collapsed-outer .body { display: none; }
+.grip {
+  height: 8px; cursor: ns-resize; background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.grip::after { content: ''; width: 46px; height: 3px; border-radius: 2px; background: var(--border-strong); }
+
+/* ── scroll area ──────────────────────────────────────────────────────── */
+main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+
+/* ── markdown body ────────────────────────────────────────────────────── */
+.md { word-break: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md pre {
+  background: var(--code-bg); color: var(--code-text);
+  padding: 10px 12px; border-radius: 6px; overflow-x: auto;
+}
+.md code { font-family: var(--font-mono); font-size: .9em; }
+.md :not(pre) > code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 8px; }
+.md blockquote {
+  margin: 8px 0; padding-left: 12px;
+  border-left: 3px solid var(--border-strong); color: var(--text-muted);
+}
+.md img { max-width: 100%; }
+.raw {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; margin: 0;
+  background: var(--code-bg); color: var(--code-text);
+  padding: 10px 12px; border-radius: 6px;
+}
+
+/* conversation turns */
+.turn { border-left: 3px solid var(--border); padding-left: 12px; margin-bottom: 14px; }
+.turn-role {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+/* judge reasons */
+.jr { list-style: none; margin: 0; padding: 0; }
+.jr li { padding: 8px 0; border-top: 1px solid var(--border); }
+.jr li:first-child { border-top: 0; padding-top: 0; }
+.jr .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+
+/* ── agent panes ──────────────────────────────────────────────────────── */
+.agents { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.agents .panel { margin: 0; }
+.agent-field { margin-bottom: 10px; }
+.agent-field:last-child { margin-bottom: 0; }
+.agent-field .label {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+}
+.agent-field .value {
+  white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono); font-size: 13px;
+  user-select: text;
+}
+.agent-field .value .uniq {
+  background: var(--warn-bg);
+  border-bottom: 2px solid var(--warn-border);
+  border-radius: 3px; padding: 0 2px;
+}
+.agent-empty { color: var(--text-muted); font-style: italic; }
+
+/* ── rubrics table ────────────────────────────────────────────────────── */
+.rtable {
+  --cols: 6% 40% 10% 22% 22%;
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 12px; background: var(--surface);
+}
+.rhead, .rrow { display: grid; grid-template-columns: var(--cols); }
+.rhead {
+  position: relative;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  border-radius: 7px 7px 0 0;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+}
+.rhead > span { padding: 7px 10px; }
+.rrow { border-top: 1px solid var(--border); }
+.rhead + .rrow, .rbody > .rrow:first-child { border-top: 0; }
+.rrow > div { padding: 8px 10px; min-width: 0; }
+.rrow.misaligned { background: var(--tint-misaligned); }
+.c-id .expander {
+  background: none; border: 0; cursor: pointer; padding: 2px 4px;
+  font-family: var(--font-mono); font-weight: 700; font-size: 13px;
+  color: var(--text); border-radius: 4px;
+}
+.c-id .expander:hover { background: var(--border); }
+.c-crit { user-select: text; }
+.c-weight .badge {
+  display: inline-block; font-family: var(--font-mono); font-size: 12px;
+  background: var(--chip-bg); border-radius: 6px; padding: 1px 8px; white-space: nowrap;
+}
+.c-issues { position: relative; }
+.c-issues textarea {
+  width: 100%; min-height: 60px; resize: vertical; overflow: hidden;
+  padding: 6px 8px; padding-right: 26px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); font-size: 14px; line-height: 1.5;
+}
+.rowclear {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: 0; cursor: pointer; padding: 0 4px;
+  color: var(--text-muted); font-size: 15px; line-height: 1; border-radius: 4px;
+}
+.rowclear:hover { color: var(--danger); background: var(--surface-raised); }
+
+.codebtn {
+  width: 100%; text-align: left; min-height: 34px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 8px; cursor: pointer; font-size: 13px;
+}
+.codebtn:hover { border-color: var(--border-strong); }
+.codebtn .placeholder { color: var(--text-muted); }
+.codebtn .codechip {
+  display: block; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45;
+  word-break: break-word;
+}
+
+.resizers { position: absolute; inset: 0; pointer-events: none; }
+.resizer {
+  position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px;
+  cursor: col-resize; pointer-events: auto; background: transparent;
+  border: 0; padding: 0;
+}
+.resizer::after {
+  content: ''; position: absolute; left: 4px; top: 4px; bottom: 4px;
+  width: 1px; background: var(--border-strong);
+}
+.resizer:hover::after, .resizer:focus-visible::after { background: var(--primary); width: 2px; }
+
+.rexp {
+  border-top: 1px dashed var(--border);
+  background: var(--surface-raised);
+  padding: 8px 14px; font-size: 13px;
+}
+.rexp dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; }
+.rexp dt { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); }
+.rexp dd { margin: 0; word-break: break-word; }
+
+/* Error-code popover. `fixed`, not `absolute`: the app is a non-scrolling
+   100dvh flex column, so an absolutely-positioned menu would extend the
+   document and focusing its first checkbox would scroll the app out of view. */
+.codemenu {
+  position: fixed; z-index: var(--z-pop);
+  width: min(560px, 94vw); max-height: 62vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.22);
+  padding: 6px;
+}
+.codemenu .grp {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .06em; color: var(--text-muted);
+  padding: 8px 8px 3px; border-top: 1px solid var(--border); margin-top: 4px;
+}
+.codemenu .grp:first-child { border-top: 0; margin-top: 0; }
+.codemenu label {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13.5px;
+}
+.codemenu label:hover { background: var(--surface-raised); }
+.codemenu label.disabled { color: var(--text-faint); cursor: not-allowed; }
+.codemenu input { margin-top: 4px; flex: 0 0 auto; }
+.codemenu .note { font-size: 11px; color: var(--text-muted); }
+.codemenu footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 6px 4px 2px; border-top: 1px solid var(--border); margin-top: 6px;
+}
+
+/* ── final box ────────────────────────────────────────────────────────── */
+.final { border: 2px solid var(--border-strong); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.final h2 { margin: 0 0 10px; font-size: 18px; font-weight: 700; }
+.outfield { margin-bottom: 14px; }
+.outfield .row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.outfield label { font-weight: 500; font-size: 14px; }
+.outfield .ro-note { font-size: 12px; color: var(--text-muted); }
+.outfield .spacer { margin-left: auto; }
+.outbox {
+  margin: 0; min-height: 76px; max-height: 340px; overflow: auto;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--code-bg); color: var(--code-text);
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+}
+.outbox:empty::before { content: 'No error codes selected yet.'; color: var(--text-muted); font-style: italic; }
+#generalRemarks {
+  width: 100%; min-height: 76px; resize: vertical;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); font-size: 15px;
+}
+.copy-ok { font-size: 13px; font-weight: 600; color: var(--success); }
+.resets { display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--border); padding-top: 10px; }
+
+details.other { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 24px; }
+details.other summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details.other dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 10px 0 2px; }
+details.other dt { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+details.other dd { margin: 0; word-break: break-word; font-size: 14px; }
+
+.dangerzone { display: flex; justify-content: flex-end; padding: 8px 0 40px; }
+
+/* ── empty state + drop overlay ───────────────────────────────────────── */
+.empty { max-width: 620px; margin: 8vh auto; text-align: center; }
+.empty h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
+.empty p { color: var(--text-muted); }
+.dropzone {
+  border: 2px dashed var(--border-strong); border-radius: 12px;
+  padding: 34px 20px; margin-top: 20px; background: var(--surface-raised);
+}
+#dropOverlay {
+  position: fixed; inset: 0; z-index: var(--z-drop);
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border: 4px dashed var(--primary);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 700; pointer-events: none;
+}
+
+/* ── dialog ───────────────────────────────────────────────────────────── */
+dialog {
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  padding: 18px 20px; max-width: 520px;
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog h2 { margin: 0 0 8px; font-size: 18px; }
+dialog p { margin: 0 0 14px; }
+dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ── responsive: stack table into cards, agents vertically ────────────── */
+@media (max-width: 1000px) {
+  .agents { grid-template-columns: 1fr; }
+  .rhead { display: none; }
+  .rrow { grid-template-columns: 1fr; gap: 2px; padding: 6px 0 10px; }
+  .rrow > div { padding: 4px 12px; }
+  .rrow > div::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .c-id::before { display: none; }
+  .rowclear { top: 30px; right: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="nav-group">
+      <button type="button" class="btn btn-icon" id="prevCase" aria-label="Previous case" title="Previous case (Alt+←)">‹</button>
+      <div class="combobox">
+        <label class="sr-only" for="caseSearch">Search cases by case id or row number</label>
+        <input type="text" id="caseSearch" role="combobox" autocomplete="off" spellcheck="false"
+               aria-expanded="false" aria-controls="caseList" aria-autocomplete="list"
+               placeholder="case id…" disabled />
+        <span class="count" id="caseCount"></span>
+        <ul id="caseList" role="listbox" aria-label="Cases" hidden></ul>
+      </div>
+      <button type="button" class="btn btn-icon" id="nextCase" aria-label="Next case" title="Next case (Alt+→)">›</button>
+    </div>
+
+    <div class="tools">
+      <span class="filename" id="fileMeta"></span>
+      <div class="seg" role="group" aria-label="Set language for all panels">
+        <button type="button" id="globalZh" aria-pressed="false">中文</button>
+        <button type="button" id="globalEn" aria-pressed="false">ENG</button>
+      </div>
+      <button type="button" class="btn" id="collapseAll" aria-label="Collapse or expand all panels">⇵ collapse all</button>
+      <button type="button" class="btn btn-icon" id="themeToggle" aria-label="Toggle light or dark theme">☀</button>
+      <label class="filebtn">
+        <span>CSV</span>
+        <input type="file" id="fileInput" accept=".csv,text/csv" aria-label="Choose a CSV file" />
+      </label>
+    </div>
+  </header>
+
+  <div class="report" id="loadReport" role="status" hidden>
+    <div class="body">
+      <h3 id="loadReportTitle"></h3>
+      <ul id="loadReportList"></ul>
+    </div>
+    <button type="button" class="btn" id="dismissReport">Dismiss</button>
+  </div>
+
+  <section class="headerstrip" id="headerStrip" hidden aria-label="Case metadata"></section>
+
+  <section class="pinned" id="pinnedWrap" hidden aria-label="Prompt under review">
+    <div id="pinnedPrompt"></div>
+    <div class="grip" id="promptGrip" role="separator" aria-label="Resize the prompt panel"
+         tabindex="0" aria-orientation="horizontal"></div>
+  </section>
+
+  <main id="scrollArea">
+    <div class="empty" id="emptyState">
+      <h1>Bad Case Rubrics Review Viewer</h1>
+      <p>Load the review export to begin. Nothing leaves this machine — the file is read in the
+         browser and never uploaded, and the CSV itself is never modified.</p>
+      <div class="dropzone">
+        <p><strong>Drop the CSV here</strong>, or use the <strong>CSV</strong> button in the top bar.</p>
+      </div>
+    </div>
+
+    <div id="caseBody" hidden>
+      <div id="panels"></div>
+      <div class="agents" id="agentPanes"></div>
+      <div id="rubricsWrap"></div>
+
+      <div class="final">
+        <h2>Final</h2>
+
+        <div class="outfield">
+          <div class="row">
+            <label id="lblCodes">Final Error Codes</label>
+            <span class="ro-note">generated from the table · read-only</span>
+            <span class="spacer"></span>
+            <span class="copy-ok" id="okCodes" role="status"></span>
+            <button type="button" class="btn btn-primary" id="copyCodes">copy</button>
+          </div>
+          <pre class="outbox" id="outCodes" tabindex="0" aria-labelledby="lblCodes"></pre>
+        </div>
+
+        <div class="outfield">
+          <div class="row">
+            <label id="lblRemarks">Final Remarks</label>
+            <span class="ro-note">generated from the table · read-only</span>
+            <span class="spacer"></span>
+            <span class="copy-ok" id="okRemarks" role="status"></span>
+            <button type="button" class="btn btn-primary" id="copyRemarks">copy</button>
+          </div>
+          <pre class="outbox" id="outRemarks" tabindex="0" aria-labelledby="lblRemarks"></pre>
+        </div>
+
+        <div class="inline-warn" id="copyWarn" hidden role="alert">
+          <div id="copyWarnText"></div>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <button type="button" class="btn btn-primary" id="copyAnyway">Copy anyway</button>
+            <button type="button" class="btn" id="copyCancel">Cancel</button>
+          </div>
+        </div>
+
+        <div class="outfield">
+          <div class="row">
+            <label for="generalRemarks">general remarks</label>
+            <span class="ro-note">free text · copied separately</span>
+            <span class="spacer"></span>
+            <span class="copy-ok" id="okGeneral" role="status"></span>
+            <button type="button" class="btn btn-primary" id="copyGeneral">copy</button>
+          </div>
+          <textarea id="generalRemarks" placeholder="Notes that belong to the case rather than a single criterion."></textarea>
+        </div>
+
+        <div class="resets">
+          <button type="button" class="btn btn-danger" id="clearCase">Clear this case</button>
+          <span class="ro-note">Wipes this case's codes, issues text and general remarks. Not undoable.</span>
+        </div>
+      </div>
+
+      <details class="other" id="otherFields">
+        <summary>Other fields</summary>
+        <dl id="otherFieldsList"></dl>
+      </details>
+
+      <div class="dangerzone">
+        <button type="button" class="btn" id="clearAll">Clear all review data…</button>
+      </div>
+    </div>
+  </main>
+
+  <div id="dropOverlay" hidden>Drop the CSV to load it</div>
+</div>
+
+<dialog id="confirmDialog">
+  <h2 id="confirmTitle"></h2>
+  <p id="confirmBody"></p>
+  <div class="actions">
+    <button type="button" class="btn" id="confirmNo">Cancel</button>
+    <button type="button" class="btn btn-danger" id="confirmYes">Confirm</button>
+  </div>
+</dialog>
+
+<script src="vendor/papaparse/papaparse.min.js"></script>
+<script src="vendor/marked/marked.min.js"></script>
+<script src="vendor/highlight/highlight.min.js"></script>
+<script src="vendor/katex/katex.min.js"></script>
+<script src="vendor/katex/auto-render.min.js"></script>
+
+<script>
+(function () {
+'use strict';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §1 CONSTANTS
+   The only place taxonomy, column names and thresholds are written down.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Canonical order. Governs both menu order and output ordering.
+   `r3` marks the two codes that only apply from the third rubric row onward —
+   both are judgments about a rubric *set*, which needs ≥3 rows to assess. */
+var ERROR_CODES = [
+  { code: 'P0 Inauthenticity / Fabrication / False Capability' },
+  { code: 'P0 Unmet Demands / Missing Critical Element' },
+  { code: 'P0 Severely Irrelevant Rubric Points' },
+  { code: 'P0 Non-Binary / Vague Subjective Criteria' },
+  { code: 'P1 Mildly Irrelevant Rubric Points' },
+  { code: 'P1 Rubric is Not Self-Contained' },
+  { code: 'P1 Unreasonable Rubric Weightage' },
+  { code: 'P1 Rubrics Redundancy (Fluff / Bonus Bloat)' },
+  { code: 'P1 Rubrics Lack Atomicity', r3: true },
+  { code: 'P2 Rubrics not in Chinese' },
+  { code: 'P2 Rubrics Lack Prompt Specificity' },
+  { code: 'P2 Repetitive / Overlapping / Contradictory', r3: true },
+  { code: 'P2 Homogenous / Undifferentiated Weightage' },
+  { code: 'P2 Weak Pitfall ("Others")' }
+];
+var CODE_ORDER = {};
+ERROR_CODES.forEach(function (c, i) { CODE_ORDER[c.code] = i; });
+
+/* R3+ gate: 1-based array position ≥ 3. Never parsed out of the rendered id. */
+var R3_MIN_POSITION = 3;
+var R3_REASON = 'Only applies from the third rubric onward — it is a judgment about the rubric set.';
+
+/* Column names are matched case-insensitively and whitespace-normalized, so
+   these are written lowercase. Source headers keep their original casing
+   (`Error codes Agent A`) and their typos (`badcase_judge_reasons_translate`,
+   which is genuinely missing its `d`). Never build these by concatenation. */
+var TRANSLATION_MAP = {
+  user_prompt:      { zh: 'user_prompt',      en: 'user_prompt_translated' },
+  model_response:   { zh: 'model_response',   en: 'model_response_translated' },
+  chat_history:     { zh: 'chat_history',     en: 'chat_history_translated' },
+  post_user_prompt: { zh: 'post_user_prompt', en: 'post_user_prompt_translated' },
+  judge_reasons:    { zh: 'badcase_judge_reasons', en: 'badcase_judge_reasons_translate' },
+  alignment:        { zh: 'step4_rubric_alignment.reasons', en: null } // en lives inside the step4 blob
+};
+
+var COL = {
+  caseId:        'case id',
+  encChatId:     'enc_chat_id',
+  langCode:      'prompt_msg_lang_code',
+  rubrics:       'rubrics',
+  step3:         'step3_rubrics_generation_translated',
+  step4:         'step4_rubric_alignment_translated',
+  agentACodes:   'error codes agent a',
+  agentARemarks: 'remarks agent a',
+  agentBCodes:   'error codes agent b',
+  agentBRemarks: 'remarks agent b'
+};
+
+/* Read-only, collapsed, otherwise ignored. Display label → normalized column. */
+var OTHER_FIELDS = [
+  ['Status',                'status'],
+  ['Operator',              'operator'],
+  ['Final Error Codes',     'final error codes'],
+  ['Final Remarks',         'final remarks'],
+  ["Error Codes' Priority", "error codes' priority"],
+  ['Final Decision',        'final decision'],
+  ['Submit?',               'submit?'],
+  ['Label Submit Date',     'label submit date'],
+  ['Pass with error',       'pass with error']
+];
+
+/* Both languages' role prefixes, ASCII and full-width colon. Applied
+   opportunistically — a miss renders one block, it never drops content. */
+var TURN_PATTERN = /^\s*(User|Assistant|System|用户|助手|系统|模型)\s*[:：]/gm;
+
+/* `importance` in the data is ignored; the band is derived from `weight`. */
+var WEIGHT_BANDS = [
+  { test: function (w) { return w < 0; },            label: 'pitfall' },
+  { test: function (w) { return w >= 1 && w <= 4; }, label: 'minor' },
+  { test: function (w) { return w >= 5 && w <= 8; }, label: 'important' },
+  { test: function (w) { return w >= 9 && w <= 10; },label: 'critical' }
+];
+
+var CHUNK_RE = /^(.+)_(\d+)$/;
+var EXCEL_CELL_LIMIT = 32767;
+
+/* Open item #2: assumed 0-based, matching the rubrics array. A one-character
+   change here if the export turns out to be 1-based. */
+var MISALIGNED_BASE = 0;
+
+/* Exist only inside the step3 blob; no Chinese source anywhere in the file. */
+var ENGLISH_ONLY_FIELDS = ['reference', 'rubric_summary', 'decision', 'failure_type', 'target_capability'];
+
+var LS = {
+  csvName: 'brv:csvName',
+  ui:      'brv:ui',
+  casePfx: 'brv:case:'
+};
+
+var PANELS = [
+  { id: 'model_response',   title: 'model_response',        lang: true,  raw: true,  turns: false },
+  { id: 'reference',        title: 'reference [ENG only]',  lang: false, raw: true,  turns: false },
+  { id: 'chat_history',     title: 'chat_history',          lang: true,  raw: true,  turns: true },
+  { id: 'post_user_prompt', title: 'post_user_prompt',      lang: true,  raw: true,  turns: true },
+  { id: 'judge_reasons',    title: 'badcase_judge_reasons', lang: true,  raw: false, turns: false },
+  { id: 'alignment',        title: 'alignment reasons',     lang: true,  raw: false, turns: false },
+  { id: 'rubric_summary',   title: 'rubric_summary [ENG only]', lang: false, raw: false, turns: false }
+];
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §2 STORAGE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function lsGet(key, fallback) {
+  try {
+    var v = localStorage.getItem(key);
+    return v === null ? fallback : JSON.parse(v);
+  } catch (e) { return fallback; }
+}
+function lsSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* quota / private mode */ }
+}
+function lsDel(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+function debounce(fn, ms) {
+  var t = null;
+  return function () {
+    var args = arguments, self = this;
+    clearTimeout(t);
+    t = setTimeout(function () { fn.apply(self, args); }, ms);
+  };
+}
+
+var ui = Object.assign({
+  panelLangs: {},      // panelId -> 'zh' | 'en'   (defaults to 'en')
+  panelCollapsed: {},  // panelId -> bool          (global across cases)
+  promptHeight: null,  // px
+  colWidths: null,     // [5]% for the rubrics grid
+  theme: 'light'
+}, lsGet(LS.ui, {}));
+
+var saveUI = debounce(function () { lsSet(LS.ui, ui); }, 200);
+
+function reviewKey(caseId) { return LS.casePfx + caseId; }
+function loadReview(caseId) {
+  var r = lsGet(reviewKey(caseId), null);
+  if (!r || typeof r !== 'object') r = {};
+  if (!r.rows || typeof r.rows !== 'object') r.rows = {};
+  if (typeof r.remarks !== 'string') r.remarks = '';
+  return r;
+}
+var saveReviewNow = function (caseId, review) {
+  // Drop empty rows so cleared work doesn't linger in storage.
+  var rows = {};
+  Object.keys(review.rows).forEach(function (k) {
+    var r = review.rows[k];
+    if (r && ((r.codes && r.codes.length) || (r.issues && r.issues.length))) rows[k] = r;
+  });
+  if (!Object.keys(rows).length && !review.remarks) lsDel(reviewKey(caseId));
+  else lsSet(reviewKey(caseId), { rows: rows, remarks: review.remarks });
+};
+var saveReview = debounce(saveReviewNow, 250);
+
+function allReviewKeys() {
+  var out = [];
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(LS.casePfx) === 0) out.push(k);
+    }
+  } catch (e) {}
+  return out;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §3 INGEST
+   The only section that knows real column names. Everything downstream
+   consumes the normalized `Case` and nothing else.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function normKey(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+
+/* base -> [{col, n}] sorted numerically, so `_10` follows `_9`, not `_1`.
+   A `foo_2` with no `foo` column is not a chunk and is left alone. */
+function buildChunkIndex(fields) {
+  var present = Object.create(null);
+  fields.forEach(function (f) { present[f] = true; });
+
+  var map = Object.create(null);
+  fields.forEach(function (f) {
+    var m = CHUNK_RE.exec(f);
+    if (!m) return;
+    var base = m[1];
+    if (!present[base]) return;
+    (map[base] || (map[base] = [])).push({ col: f, n: parseInt(m[2], 10) });
+  });
+  Object.keys(map).forEach(function (b) { map[b].sort(function (a, c) { return a.n - c.n; }); });
+  return map;
+}
+
+/* Base first, then _N in numeric order. No separator, no trim — the cut lands
+   at an arbitrary character offset, so anything inserted or stripped corrupts
+   the text. Always runs before any parse or render. */
+function joinChunks(row, base, chunks) {
+  if (!base) return '';
+  var out = row[base] == null ? '' : String(row[base]);
+  var list = chunks[base];
+  if (list) {
+    for (var i = 0; i < list.length; i++) {
+      var v = row[list[i].col];
+      if (v != null) out += String(v);
+    }
+  }
+  return out;
+}
+
+/* Suspected truncation: the HIGHEST-numbered chunk — or an unchunked cell —
+   sitting exactly on Excel's limit, meaning the writer ran out of room and had
+   nowhere to continue.
+   Not the joined length: for a field split across five columns that number is
+   meaningless. Not an intermediate chunk either: every non-final chunk is
+   exactly 32,767 characters by construction, so testing them flags every long
+   field. Only a *terminal* cell on the limit is a signal.
+   This is the one check whose failure mode is a silently mis-adjudicated
+   rubric — a response truncated mid-sentence reads as Unmet Demands. */
+function detectTruncation(row, base, chunks) {
+  if (!base) return false;
+  var list = chunks[base];
+  var col = (list && list.length) ? list[list.length - 1].col : base;
+  var v = row[col];
+  return v != null && String(v).length === EXCEL_CELL_LIMIT;
+}
+
+/* Returns null and records an issue instead of throwing. The file always loads. */
+function safeJSON(text, label, issues) {
+  if (!text || !String(text).trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    issues.push(label + ': ' + e.message);
+    return null;
+  }
+}
+
+function bandFor(w) {
+  if (!Number.isFinite(w)) return null;
+  for (var i = 0; i < WEIGHT_BANDS.length; i++) {
+    if (WEIGHT_BANDS[i].test(w)) return WEIGHT_BANDS[i].label;
+  }
+  return null; // out of every band → bare number, no label
+}
+
+function buildPanelText(row, chunks, map, name, issues) {
+  var zh = joinChunks(row, map.zh, chunks);
+  var en = map.en ? joinChunks(row, map.en, chunks) : '';
+  var enMissing = !en.trim();
+  var out = {
+    zh: zh,
+    en: en,
+    zhMissing: !zh.trim(),
+    enMissing: enMissing,
+    enTruncated: !enMissing && detectTruncation(row, map.en, chunks),
+    zhTruncated: !!zh.trim() && detectTruncation(row, map.zh, chunks)
+  };
+  if (out.enTruncated) issues.push(map.en + ' truncated at ' + EXCEL_CELL_LIMIT + ' chars');
+  if (out.zhTruncated) issues.push(map.zh + ' truncated at ' + EXCEL_CELL_LIMIT + ' chars');
+  return out;
+}
+
+function buildCase(row, chunks, rowNumber) {
+  var issues = [];
+  var id = String(row[COL.caseId] == null ? '' : row[COL.caseId]).trim() || ('(row ' + rowNumber + ')');
+
+  var panels = {};
+  ['user_prompt', 'model_response', 'chat_history', 'post_user_prompt'].forEach(function (k) {
+    panels[k] = buildPanelText(row, chunks, TRANSLATION_MAP[k], k, issues);
+  });
+
+  /* ── rubrics: two independent, complete sources ───────────────────── */
+  var rubricsRaw = joinChunks(row, COL.rubrics, chunks);
+  var zhParsed = safeJSON(rubricsRaw, 'rubrics', issues);
+  var zhArr = Array.isArray(zhParsed) ? zhParsed : null;
+  if (zhParsed && !zhArr) issues.push('rubrics: expected a JSON array');
+
+  var step3Raw = joinChunks(row, COL.step3, chunks);
+  var step3 = safeJSON(step3Raw, COL.step3, issues);
+  var enArr = (step3 && Array.isArray(step3.rubrics)) ? step3.rubrics : null;
+  if (step3 && !enArr) issues.push(COL.step3 + ': no `rubrics` array, ENG unavailable');
+  if (!step3 && step3Raw.trim()) issues.push(COL.step3 + ' failed to parse, ENG unavailable');
+
+  var step4Raw = joinChunks(row, COL.step4, chunks);
+  var step4 = safeJSON(step4Raw, COL.step4, issues);
+  if (!step4 && step4Raw.trim()) {
+    // The row tint and the aligned/severity chips live only here — a missing
+    // tint is invisible, so it must be reported.
+    issues.push(COL.step4 + ' failed to parse — alignment chips and misaligned tint unavailable');
+  }
+
+  var misaligned = Object.create(null);
+  if (step4 && Array.isArray(step4.misaligned_indices)) {
+    step4.misaligned_indices.forEach(function (n) { misaligned[Number(n)] = true; });
+  }
+
+  var rubricsSource = zhArr && enArr ? 'both' : zhArr ? 'zh' : enArr ? 'en' : 'none';
+  var count = Math.max(zhArr ? zhArr.length : 0, enArr ? enArr.length : 0);
+  if (zhArr && enArr && zhArr.length !== enArr.length) {
+    issues.push('rubrics count mismatch — 中文 ' + zhArr.length + ' vs ENG ' + enArr.length +
+                ' (matched by position, the tail has one language only)');
+  }
+
+  var rubrics = [];
+  for (var i = 0; i < count; i++) {
+    var z = zhArr ? zhArr[i] : null;
+    var e = enArr ? enArr[i] : null;
+    // Both sources carry the complete object; prefer 中文 for structure.
+    var s = z || e || {};
+    var w = Number(s.weight);
+    rubrics.push({
+      requirement: {
+        zh: z && z.requirement != null ? String(z.requirement) : '',
+        en: e && e.requirement != null ? String(e.requirement) : ''
+      },
+      weight: Number.isFinite(w) ? w : null,
+      band: bandFor(w),
+      dimension: s.dimension == null ? '' : String(s.dimension),
+      source: Array.isArray(s.source) ? s.source : (s.source ? [String(s.source)] : []),
+      badResponseMeets: s.bad_response_meets,
+      misaligned: !!misaligned[i + MISALIGNED_BASE]
+    });
+  }
+
+  /* ── ENG-only, case level ─────────────────────────────────────────── */
+  function fromStep3(key) {
+    if (!step3) return null;
+    var v = step3[key];
+    return (v == null || v === '') ? null : v;
+  }
+  var header = {
+    decision:         fromStep3('decision'),
+    failureType:      fromStep3('failure_type'),
+    targetCapability: fromStep3('target_capability'),
+    aligned:          step4 && step4.aligned !== undefined ? step4.aligned : null,
+    severity:         step4 && step4.severity !== undefined ? step4.severity : null
+  };
+
+  panels.reference = {
+    zh: '', en: fromStep3('reference') == null ? '' : String(fromStep3('reference')),
+    zhMissing: true, enMissing: fromStep3('reference') == null,
+    enTruncated: false, zhTruncated: false, englishOnly: true
+  };
+  panels.rubric_summary = {
+    zh: '', en: fromStep3('rubric_summary') == null ? '' : String(fromStep3('rubric_summary')),
+    zhMissing: true, enMissing: fromStep3('rubric_summary') == null,
+    enTruncated: false, zhTruncated: false, englishOnly: true
+  };
+
+  /* ── alignment reasons: 中文 is its own column and survives a bad blob ─ */
+  var alignEn = step4 && step4.reasons != null ? String(step4.reasons) : '';
+  var alignZh = joinChunks(row, TRANSLATION_MAP.alignment.zh, chunks);
+  panels.alignment = {
+    zh: alignZh, en: alignEn,
+    zhMissing: !alignZh.trim(), enMissing: !alignEn.trim(),
+    enTruncated: false, zhTruncated: false
+  };
+
+  /* ── judge reasons ────────────────────────────────────────────────── */
+  var jrZhRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.zh, chunks);
+  var jrEnRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.en, chunks);
+  var jrZh = safeJSON(jrZhRaw, TRANSLATION_MAP.judge_reasons.zh, issues);
+  var jrEn = safeJSON(jrEnRaw, TRANSLATION_MAP.judge_reasons.en, issues);
+  var jrZhArr = Array.isArray(jrZh) ? jrZh : null;
+  var jrEnArr = Array.isArray(jrEn) ? jrEn : null;
+  var judgeReasons = null;
+  var base = jrZhArr || jrEnArr;
+  if (base) {
+    judgeReasons = base.map(function (item, idx) {
+      var z = jrZhArr ? jrZhArr[idx] : null;
+      var en = jrEnArr ? jrEnArr[idx] : null;
+      var src = z || en || {};
+      return {
+        source: src.source == null ? '' : String(src.source),
+        turnIndex: src.turn_index,                 // plain label — never linked to a split turn
+        hasNegativeFeedback: src.has_negative_feedback,
+        reason: {
+          zh: z && z.reason != null ? String(z.reason) : '',
+          en: en && en.reason != null ? String(en.reason) : ''
+        }
+      };
+    });
+  }
+
+  var other = {};
+  OTHER_FIELDS.forEach(function (pair) {
+    var v = row[pair[1]];
+    other[pair[0]] = v == null ? '' : String(v);
+  });
+
+  return {
+    id: id,
+    rowNumber: rowNumber,
+    encChatId: row[COL.encChatId] == null ? '' : String(row[COL.encChatId]),
+    langCode: row[COL.langCode] == null ? '' : String(row[COL.langCode]),
+    panels: panels,
+    header: header,
+    rubrics: rubrics,
+    rubricsSource: rubricsSource,
+    rubricsRaw: rubricsRaw,
+    judgeReasons: judgeReasons,
+    judgeReasonsRaw: jrZhRaw || jrEnRaw,
+    agentA: {
+      codes:   row[COL.agentACodes]   == null ? '' : String(row[COL.agentACodes]),
+      remarks: row[COL.agentARemarks] == null ? '' : String(row[COL.agentARemarks])
+    },
+    agentB: {
+      codes:   row[COL.agentBCodes]   == null ? '' : String(row[COL.agentBCodes]),
+      remarks: row[COL.agentBRemarks] == null ? '' : String(row[COL.agentBRemarks])
+    },
+    otherFields: other,
+    issues: issues
+  };
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §4 TEXT RENDER
+   ══════════════════════════════════════════════════════════════════════════ */
+
+marked.setOptions({
+  gfm: true,
+  breaks: false,
+  headerIds: false,
+  mangle: false,
+  highlight: function (code, lang) {
+    try {
+      if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+      return hljs.highlightAuto(code).value;
+    } catch (e) { return null; }
+  }
+});
+
+var KATEX_DELIMS = [
+  { left: '$$',  right: '$$',  display: true },
+  { left: '\\[', right: '\\]', display: true },
+  { left: '\\(', right: '\\)', display: false },
+  { left: '$',   right: '$',   display: false }
+];
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* Single entry point. A render failure never blanks a panel: the caller keeps
+   whatever was there and shows an inline error. KaTeX runs with
+   throwOnError:false so one malformed formula renders red inline. */
+function renderMarkdown(el, text) {
+  try {
+    el.innerHTML = marked.parse(String(text == null ? '' : text));
+  } catch (e) {
+    el.innerHTML = '<div class="inline-error">Markdown render failed: ' + escapeHtml(e.message) + '</div>' +
+                   '<pre class="raw">' + escapeHtml(text) + '</pre>';
+    return;
+  }
+  try {
+    renderMathInElement(el, { delimiters: KATEX_DELIMS, throwOnError: false });
+  } catch (e) { /* auto-render itself failed; the Markdown stands */ }
+}
+
+/* Opportunistic: matches → labelled turns, no match → one block.
+   Content is never dropped or reordered. */
+function splitTurns(text) {
+  var re = new RegExp(TURN_PATTERN.source, TURN_PATTERN.flags);
+  var marks = [], m;
+  while ((m = re.exec(text)) !== null) {
+    marks.push({ start: m.index, bodyStart: m.index + m[0].length, role: m[1] });
+    if (m.index === re.lastIndex) re.lastIndex++; // zero-length guard
+  }
+  if (!marks.length) return null;
+
+  var turns = [];
+  if (marks[0].start > 0) {
+    var pre = text.slice(0, marks[0].start);
+    if (pre.trim()) turns.push({ role: null, body: pre });
+  }
+  for (var i = 0; i < marks.length; i++) {
+    var end = (i + 1 < marks.length) ? marks[i + 1].start : text.length;
+    turns.push({ role: marks[i].role, body: text.slice(marks[i].bodyStart, end) });
+  }
+  return turns;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STATE
+   Data is frozen after buildCase. Review edits go to the review tier keyed by
+   case id + row index, never onto a rubric object.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var cases = [];
+var currentIndex = -1;
+var currentCase = null;
+var review = { rows: {}, remarks: '' };
+var rawFlags = {};        // panelId -> bool. Session only, per spec's UI-prefs list.
+var expandedRows = {};    // rowIndex -> bool. Session only.
+var renderCache = {};     // panelId|lang|raw -> HTML. Cleared on navigation.
+var pendingCopy = null;
+
+var $ = function (sel) { return document.querySelector(sel); };
+var el = {
+  prev: $('#prevCase'), next: $('#nextCase'),
+  search: $('#caseSearch'), count: $('#caseCount'), list: $('#caseList'),
+  fileInput: $('#fileInput'), fileMeta: $('#fileMeta'),
+  globalZh: $('#globalZh'), globalEn: $('#globalEn'),
+  collapseAll: $('#collapseAll'), theme: $('#themeToggle'),
+  report: $('#loadReport'), reportTitle: $('#loadReportTitle'),
+  reportList: $('#loadReportList'), dismissReport: $('#dismissReport'),
+  headerStrip: $('#headerStrip'), pinnedWrap: $('#pinnedWrap'),
+  pinnedPrompt: $('#pinnedPrompt'), grip: $('#promptGrip'),
+  empty: $('#emptyState'), caseBody: $('#caseBody'),
+  panels: $('#panels'), agents: $('#agentPanes'), rubricsWrap: $('#rubricsWrap'),
+  outCodes: $('#outCodes'), outRemarks: $('#outRemarks'),
+  copyCodes: $('#copyCodes'), copyRemarks: $('#copyRemarks'), copyGeneral: $('#copyGeneral'),
+  okCodes: $('#okCodes'), okRemarks: $('#okRemarks'), okGeneral: $('#okGeneral'),
+  copyWarn: $('#copyWarn'), copyWarnText: $('#copyWarnText'),
+  copyAnyway: $('#copyAnyway'), copyCancel: $('#copyCancel'),
+  general: $('#generalRemarks'),
+  clearCase: $('#clearCase'), clearAll: $('#clearAll'),
+  other: $('#otherFields'), otherList: $('#otherFieldsList'),
+  scroll: $('#scrollArea'), dropOverlay: $('#dropOverlay'),
+  dialog: $('#confirmDialog'), dlgTitle: $('#confirmTitle'), dlgBody: $('#confirmBody'),
+  dlgYes: $('#confirmYes'), dlgNo: $('#confirmNo')
+};
+
+function panelLang(id) { return ui.panelLangs[id] === 'zh' ? 'zh' : 'en'; }  // ENG on first load
+function isCollapsed(id) { return !!ui.panelCollapsed[id]; }
+function rowState(idx) {
+  var r = review.rows[idx];
+  if (!r) { r = review.rows[idx] = { codes: [], issues: '' }; }
+  if (!Array.isArray(r.codes)) r.codes = [];
+  if (typeof r.issues !== 'string') r.issues = '';
+  return r;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §5 PANELS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function makePanel(spec, opts) {
+  opts = opts || {};
+  var panel = document.createElement('section');
+  panel.className = 'panel' + (isCollapsed(spec.id) ? ' collapsed' : '');
+  panel.dataset.panel = spec.id;
+
+  var head = document.createElement('header');
+
+  var titleBtn = document.createElement('button');
+  titleBtn.type = 'button';
+  titleBtn.className = 'title';
+  titleBtn.textContent = spec.title;
+  titleBtn.setAttribute('aria-expanded', String(!isCollapsed(spec.id)));
+  titleBtn.addEventListener('click', function () { toggleCollapse(spec.id); });
+  head.appendChild(titleBtn);
+
+  if (opts.badge) {
+    var badge = document.createElement('span');
+    badge.className = 'badge-fallback';
+    badge.textContent = opts.badge;
+    if (opts.badgeTitle) badge.title = opts.badgeTitle;
+    head.appendChild(badge);
+  }
+
+  var spacer = document.createElement('span');
+  spacer.className = 'spacer';
+  head.appendChild(spacer);
+
+  if (spec.lang) {
+    var seg = document.createElement('div');
+    seg.className = 'seg';
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', 'Language for ' + spec.title);
+    [['zh', '中文'], ['en', 'ENG']].forEach(function (pair) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = pair[1];
+      b.setAttribute('aria-pressed', String(panelLang(spec.id) === pair[0]));
+      if (opts.disableLang && opts.disableLang[pair[0]]) {
+        b.disabled = true;
+        b.title = opts.disableLang[pair[0]];
+      }
+      b.addEventListener('click', function () { setPanelLang(spec.id, pair[0]); });
+      seg.appendChild(b);
+    });
+    head.appendChild(seg);
+  }
+
+  if (spec.raw) {
+    var rawSeg = document.createElement('div');
+    rawSeg.className = 'seg';
+    var rb = document.createElement('button');
+    rb.type = 'button';
+    rb.textContent = 'raw';
+    rb.title = 'Show the unrendered joined source';
+    rb.setAttribute('aria-pressed', String(!!rawFlags[spec.id]));
+    rb.addEventListener('click', function () {
+      rawFlags[spec.id] = !rawFlags[spec.id];
+      renderCase();
+    });
+    rawSeg.appendChild(rb);
+    head.appendChild(rawSeg);
+  }
+
+  var collapseBtn = document.createElement('button');
+  collapseBtn.type = 'button';
+  collapseBtn.className = 'btn btn-icon';
+  collapseBtn.setAttribute('aria-label', (isCollapsed(spec.id) ? 'Expand ' : 'Collapse ') + spec.title);
+  collapseBtn.textContent = isCollapsed(spec.id) ? '▸' : '▾';
+  collapseBtn.addEventListener('click', function () { toggleCollapse(spec.id); });
+  head.appendChild(collapseBtn);
+
+  panel.appendChild(head);
+
+  var body = document.createElement('div');
+  body.className = 'body';
+  panel.appendChild(body);
+  panel.__body = body;
+  return panel;
+}
+
+function toggleCollapse(id) {
+  ui.panelCollapsed[id] = !ui.panelCollapsed[id];
+  saveUI();
+  renderCase();
+}
+
+function setPanelLang(id, lang) {
+  ui.panelLangs[id] = lang;
+  saveUI();
+  renderCase();
+}
+
+/* Chooses which language actually renders, and what to say about it.
+   A missing translation is data, not an exception. */
+function resolveText(field, id) {
+  var want = panelLang(id);
+  var out = { lang: want, text: '', badge: null, warn: null };
+
+  if (field.englishOnly) {
+    out.lang = 'en';
+    out.text = field.en;
+    return out;
+  }
+  if (want === 'en' && field.enMissing && !field.zhMissing) {
+    out.lang = 'zh';
+    out.text = field.zh;
+    out.badge = 'ENG unavailable — showing 中文';
+    return out;
+  }
+  if (want === 'zh' && field.zhMissing && !field.enMissing) {
+    out.lang = 'en';
+    out.text = field.en;
+    out.badge = '中文 unavailable — showing ENG';
+    return out;
+  }
+  out.text = want === 'zh' ? field.zh : field.en;
+  // Truncation never falls back — the English is shown with a loud warning,
+  // because silently rendering a response that stops mid-sentence would get a
+  // rubric marked Unmet Demands when the model satisfied it in the unseen tail.
+  if (out.lang === 'en' && field.enTruncated) {
+    out.warn = '⚠ English truncated at ' + EXCEL_CELL_LIMIT.toLocaleString() +
+               ' chars — switch to 中文 for the full text';
+  }
+  if (out.lang === 'zh' && field.zhTruncated) {
+    out.warn = '⚠ 中文 truncated at ' + EXCEL_CELL_LIMIT.toLocaleString() + ' chars — the tail is missing from the file';
+  }
+  return out;
+}
+
+function fillTextBody(body, spec, resolved) {
+  body.textContent = '';
+  if (resolved.warn) {
+    var w = document.createElement('div');
+    w.className = 'inline-warn';
+    w.textContent = resolved.warn;
+    body.appendChild(w);
+  }
+  if (!resolved.text.trim()) {
+    var e = document.createElement('p');
+    e.className = 'agent-empty';
+    e.textContent = '(empty)';
+    body.appendChild(e);
+    return;
+  }
+
+  var cacheKey = spec.id + '|' + resolved.lang + '|' + (rawFlags[spec.id] ? 'raw' : 'md');
+  var holder = document.createElement('div');
+
+  if (rawFlags[spec.id]) {
+    // Always the unsplit joined source.
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = resolved.text;
+    holder.appendChild(pre);
+  } else if (renderCache[cacheKey]) {
+    holder.innerHTML = renderCache[cacheKey];
+  } else {
+    var turns = spec.turns ? splitTurns(resolved.text) : null;
+    if (turns) {
+      turns.forEach(function (t) {
+        var d = document.createElement('div');
+        d.className = 'turn';
+        if (t.role) {
+          var r = document.createElement('div');
+          r.className = 'turn-role';
+          r.textContent = t.role;
+          d.appendChild(r);
+        }
+        var md = document.createElement('div');
+        md.className = 'md';
+        renderMarkdown(md, t.body);
+        d.appendChild(md);
+        holder.appendChild(d);
+      });
+    } else {
+      var md1 = document.createElement('div');
+      md1.className = 'md';
+      renderMarkdown(md1, resolved.text);
+      holder.appendChild(md1);
+    }
+    renderCache[cacheKey] = holder.innerHTML;
+  }
+  body.appendChild(holder);
+}
+
+function renderPinnedPrompt(c) {
+  var spec = { id: 'user_prompt', title: 'user_prompt', lang: true, raw: true, turns: false };
+  var field = c.panels.user_prompt;
+  var resolved = resolveText(field, spec.id);
+  var panel = makePanel(spec, { badge: resolved.badge });
+  fillTextBody(panel.__body, spec, resolved);
+  el.pinnedPrompt.textContent = '';
+  el.pinnedPrompt.appendChild(panel);
+  el.pinnedWrap.hidden = false;
+  el.grip.hidden = isCollapsed('user_prompt');
+}
+
+function renderJudgeReasons(c, body) {
+  body.textContent = '';
+  if (!c.judgeReasons) {
+    if (!c.judgeReasonsRaw.trim()) {
+      body.innerHTML = '<p class="agent-empty">(empty)</p>';
+      return;
+    }
+    // Context, never input — nothing downstream depends on it.
+    var err = document.createElement('div');
+    err.className = 'inline-error';
+    err.textContent = 'badcase_judge_reasons could not be parsed as JSON — raw cell text below.';
+    body.appendChild(err);
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = c.judgeReasonsRaw;
+    body.appendChild(pre);
+    return;
+  }
+
+  var lang = panelLang('judge_reasons');
+  var ul = document.createElement('ul');
+  ul.className = 'jr';
+  c.judgeReasons.forEach(function (r) {
+    var li = document.createElement('li');
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+
+    if (r.turnIndex !== undefined && r.turnIndex !== null && r.turnIndex !== '') {
+      // Plain label. Deliberately not linked to a TURN_PATTERN split — upstream
+      // numbering and ours are not guaranteed to agree, and a confident link to
+      // the wrong turn is worse than no link.
+      meta.appendChild(chip('turn ' + r.turnIndex));
+    }
+    if (r.source) meta.appendChild(chip(r.source));
+    if (r.hasNegativeFeedback === true) meta.appendChild(chip('negative ✓'));
+    else if (r.hasNegativeFeedback === false) meta.appendChild(chip('negative ✗'));
+    li.appendChild(meta);
+
+    var text = lang === 'zh' ? r.reason.zh : r.reason.en;
+    var fellBack = false;
+    if (!text.trim()) {
+      text = lang === 'zh' ? r.reason.en : r.reason.zh;
+      fellBack = !!text.trim();
+    }
+    var md = document.createElement('div');
+    md.className = 'md';
+    renderMarkdown(md, text || '(no reason given)');
+    li.appendChild(md);
+    if (fellBack) {
+      var b = document.createElement('span');
+      b.className = 'badge-fallback';
+      b.textContent = (lang === 'zh' ? '中文' : 'ENG') + ' unavailable for this entry';
+      li.appendChild(b);
+    }
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+
+function chip(text, label) {
+  var s = document.createElement('span');
+  s.className = 'chip';
+  if (label) {
+    var b = document.createElement('b');
+    b.textContent = label;
+    s.appendChild(b);
+  }
+  s.appendChild(document.createTextNode(text));
+  return s;
+}
+
+function renderHeaderStrip(c) {
+  var h = el.headerStrip;
+  h.textContent = '';
+
+  var l1 = document.createElement('div');
+  l1.className = 'line';
+  var id = document.createElement('span');
+  id.className = 'caseid';
+  id.textContent = c.id;
+  l1.appendChild(id);
+  l1.appendChild(chip(String(c.rowNumber) + ' of ' + cases.length, 'row'));
+  if (c.encChatId) l1.appendChild(chip(c.encChatId, 'enc_chat_id'));
+  if (c.langCode) l1.appendChild(chip(c.langCode, 'lang'));
+  h.appendChild(l1);
+
+  var hd = c.header;
+  var l2 = document.createElement('div');
+  l2.className = 'line';
+  if (hd.decision != null)         l2.appendChild(chip(String(hd.decision), 'decision'));
+  if (hd.failureType != null)      l2.appendChild(chip(String(hd.failureType), 'failure_type'));
+  if (hd.targetCapability != null) l2.appendChild(chip(String(hd.targetCapability), 'target_capability'));
+  if (hd.aligned !== null)         l2.appendChild(chip(hd.aligned ? '✓' : '✗', 'aligned'));
+  if (hd.severity !== null)        l2.appendChild(chip(String(hd.severity), 'severity'));
+  if (l2.childNodes.length) h.appendChild(l2);
+
+  h.hidden = false;
+}
+
+function renderPanels(c) {
+  el.panels.textContent = '';
+  PANELS.forEach(function (spec) {
+    var field = c.panels[spec.id];
+
+    if (spec.id === 'judge_reasons') {
+      var jrPanel = makePanel(spec, {});
+      renderJudgeReasons(c, jrPanel.__body);
+      el.panels.appendChild(jrPanel);
+      return;
+    }
+
+    if (field.englishOnly && field.enMissing) return; // vanishes with a bad step3 blob
+
+    var resolved = resolveText(field, spec.id);
+    var opts = { badge: resolved.badge };
+    if (spec.lang) {
+      opts.disableLang = {};
+      if (field.zhMissing) opts.disableLang.zh = 'No 中文 source for this field in the file.';
+      if (field.enMissing) opts.disableLang.en = 'No English translation for this field in the file.';
+    }
+    var panel = makePanel(spec, opts);
+    fillTextBody(panel.__body, spec, resolved);
+    el.panels.appendChild(panel);
+  });
+}
+
+/* Agent panes: verbatim, read-only, never parsed. The highlight below is
+   string matching for display emphasis only and never reaches the output. */
+function agentTokens(text) {
+  return String(text).split(/[\n;,]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+}
+
+function renderAgentPanes(c) {
+  el.agents.textContent = '';
+  var aTok = agentTokens(c.agentA.codes);
+  var bTok = agentTokens(c.agentB.codes);
+  var aSet = {}, bSet = {};
+  aTok.forEach(function (t) { aSet[t.toLowerCase()] = true; });
+  bTok.forEach(function (t) { bSet[t.toLowerCase()] = true; });
+
+  [['Agent A', c.agentA, aTok, bSet], ['Agent B', c.agentB, bTok, aSet]].forEach(function (spec) {
+    var name = spec[0], data = spec[1], tokens = spec[2], otherSet = spec[3];
+
+    var panel = document.createElement('section');
+    panel.className = 'panel';
+    var head = document.createElement('header');
+    var t = document.createElement('span');
+    t.className = 'title';
+    t.style.cursor = 'default';
+    t.textContent = name;
+    head.appendChild(t);
+    var sp = document.createElement('span');
+    sp.className = 'spacer';
+    head.appendChild(sp);
+    var note = document.createElement('span');
+    note.className = 'ro-note';
+    note.style.fontSize = '11px';
+    note.style.color = 'var(--text-muted)';
+    note.textContent = 'verbatim · read-only';
+    head.appendChild(note);
+    panel.appendChild(head);
+
+    var body = document.createElement('div');
+    body.className = 'body';
+
+    var f1 = document.createElement('div');
+    f1.className = 'agent-field';
+    f1.innerHTML = '<div class="label">codes</div>';
+    var v1 = document.createElement('div');
+    v1.className = 'value';
+    if (!data.codes.trim()) {
+      v1.innerHTML = '<span class="agent-empty">(none)</span>';
+    } else if (tokens.length) {
+      // Rebuild the cell verbatim, wrapping only the tokens the other agent lacks.
+      var html = escapeHtml(data.codes);
+      tokens.forEach(function (tok) {
+        if (otherSet[tok.toLowerCase()]) return;
+        var esc = escapeHtml(tok);
+        html = html.split(esc).join('<span class="uniq" title="Not present in the other agent\'s codes">' + esc + '</span>');
+      });
+      v1.innerHTML = html;
+    } else {
+      v1.textContent = data.codes;
+    }
+    f1.appendChild(v1);
+    body.appendChild(f1);
+
+    var f2 = document.createElement('div');
+    f2.className = 'agent-field';
+    f2.innerHTML = '<div class="label">remarks</div>';
+    var v2 = document.createElement('div');
+    v2.className = 'value';
+    if (!data.remarks.trim()) v2.innerHTML = '<span class="agent-empty">(none)</span>';
+    else v2.textContent = data.remarks;
+    f2.appendChild(v2);
+    body.appendChild(f2);
+
+    panel.appendChild(body);
+    el.agents.appendChild(panel);
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §6 RUBRICS TABLE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var DEFAULT_COLS = [6, 40, 10, 22, 22];
+var COL_LABELS = ['id', 'criterion', 'weight', 'error code', 'issues to fix'];
+var MIN_COL = 5;
+
+function colWidths() {
+  var w = ui.colWidths;
+  if (!Array.isArray(w) || w.length !== 5 || w.some(function (n) { return !Number.isFinite(n); })) {
+    return DEFAULT_COLS.slice();
+  }
+  return w.slice();
+}
+
+function renderRubrics(c) {
+  el.rubricsWrap.textContent = '';
+
+  if (c.rubricsSource === 'none') {
+    var err = document.createElement('div');
+    err.className = 'inline-error';
+    err.textContent = 'Neither `rubrics` (中文) nor `' + COL.step3 + '` (ENG) could be parsed — ' +
+                      'no rubrics table for this case. Raw cell text below.';
+    el.rubricsWrap.appendChild(err);
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = c.rubricsRaw || '(empty)';
+    el.rubricsWrap.appendChild(pre);
+    return;
+  }
+
+  var table = document.createElement('div');
+  table.className = 'rtable';
+  var widths = colWidths();
+  table.style.setProperty('--cols', widths.map(function (n) { return n + '%'; }).join(' '));
+
+  /* header + resizers */
+  var head = document.createElement('div');
+  head.className = 'rhead';
+  COL_LABELS.forEach(function (l) {
+    var s = document.createElement('span');
+    s.textContent = l;
+    head.appendChild(s);
+  });
+  var resizers = document.createElement('div');
+  resizers.className = 'resizers';
+  var acc = 0;
+  for (var i = 0; i < 4; i++) {
+    acc += widths[i];
+    var r = document.createElement('button');
+    r.type = 'button';
+    r.className = 'resizer';
+    r.style.left = acc + '%';
+    r.setAttribute('aria-label', 'Resize the ' + COL_LABELS[i] + ' column');
+    r.dataset.edge = String(i);
+    resizers.appendChild(r);
+  }
+  head.appendChild(resizers);
+  table.appendChild(head);
+  wireResizers(table, resizers);
+
+  /* language for the criterion column */
+  var critLang = panelLang('rubrics');
+  var langBar = document.createElement('div');
+  langBar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;';
+  var lbl = document.createElement('span');
+  lbl.style.cssText = 'font-size:13px;font-weight:500;';
+  lbl.textContent = 'criterion language';
+  langBar.appendChild(lbl);
+
+  var seg = document.createElement('div');
+  seg.className = 'seg';
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', 'Language for the criterion column');
+  [['zh', '中文'], ['en', 'ENG']].forEach(function (pair) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = pair[1];
+    b.setAttribute('aria-pressed', String(critLang === pair[0]));
+    if (pair[0] === 'zh' && c.rubricsSource === 'en') {
+      b.disabled = true;
+      b.title = '`rubrics` (中文) could not be parsed for this case.';
+    }
+    if (pair[0] === 'en' && c.rubricsSource === 'zh') {
+      b.disabled = true;
+      b.title = '`' + COL.step3 + '` (ENG) could not be parsed for this case.';
+    }
+    b.addEventListener('click', function () { setPanelLang('rubrics', pair[0]); });
+    seg.appendChild(b);
+  });
+  langBar.appendChild(seg);
+
+  if (c.rubricsSource !== 'both') {
+    var badge = document.createElement('span');
+    badge.className = 'badge-fallback';
+    badge.textContent = c.rubricsSource === 'zh'
+      ? 'ENG unavailable — table from `rubrics` (中文)'
+      : '中文 unavailable — table from the ENG blob';
+    langBar.appendChild(badge);
+  }
+  el.rubricsWrap.appendChild(langBar);
+
+  /* rows */
+  var body = document.createElement('div');
+  body.className = 'rbody';
+  c.rubrics.forEach(function (r, idx) {
+    body.appendChild(buildRubricRow(c, r, idx, critLang));
+    if (expandedRows[idx]) body.appendChild(buildRubricExpander(r));
+  });
+  table.appendChild(body);
+  el.rubricsWrap.appendChild(table);
+}
+
+function buildRubricRow(c, r, idx, critLang) {
+  var st = rowState(idx);
+  var row = document.createElement('div');
+  row.className = 'rrow' + (r.misaligned ? ' misaligned' : '');
+  row.dataset.idx = String(idx);
+  if (r.misaligned) row.title = 'The upstream alignment check listed this rubric in misaligned_indices.';
+
+  /* id + expander */
+  var cId = document.createElement('div');
+  cId.className = 'c-id';
+  cId.dataset.label = 'id';
+  var exp = document.createElement('button');
+  exp.type = 'button';
+  exp.className = 'expander';
+  exp.textContent = (expandedRows[idx] ? '▾ ' : '▸ ') + 'R' + (idx + 1);
+  exp.setAttribute('aria-expanded', String(!!expandedRows[idx]));
+  exp.setAttribute('aria-label', 'Details for rubric R' + (idx + 1));
+  exp.addEventListener('click', function () {
+    expandedRows[idx] = !expandedRows[idx];
+    renderRubrics(currentCase);
+  });
+  cId.appendChild(exp);
+  row.appendChild(cId);
+
+  /* criterion — read-only, never edited, stored, or copied out */
+  var cCrit = document.createElement('div');
+  cCrit.className = 'c-crit md';
+  cCrit.dataset.label = 'criterion';
+  var text = critLang === 'zh' ? r.requirement.zh : r.requirement.en;
+  var fellBack = false;
+  if (!text.trim()) {
+    text = critLang === 'zh' ? r.requirement.en : r.requirement.zh;
+    fellBack = !!text.trim();
+  }
+  renderMarkdown(cCrit, text || '(empty)');
+  if (fellBack) {
+    var fb = document.createElement('span');
+    fb.className = 'badge-fallback';
+    fb.textContent = (critLang === 'zh' ? '中文' : 'ENG') + ' unavailable for this criterion';
+    cCrit.appendChild(fb);
+  }
+  row.appendChild(cCrit);
+
+  /* weight — integer fused with its derived band */
+  var cW = document.createElement('div');
+  cW.className = 'c-weight';
+  cW.dataset.label = 'weight';
+  var wb = document.createElement('span');
+  wb.className = 'badge';
+  if (r.weight === null) wb.textContent = '—';
+  else wb.textContent = r.band ? (r.weight + ' · ' + r.band) : String(r.weight);
+  cW.appendChild(wb);
+  row.appendChild(cW);
+
+  /* error code — multi-select */
+  var cCode = document.createElement('div');
+  cCode.className = 'c-code';
+  cCode.dataset.label = 'error code';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'codebtn';
+  btn.setAttribute('aria-haspopup', 'true');
+  btn.setAttribute('aria-expanded', 'false');
+  paintCodeButton(btn, st.codes, idx);
+  btn.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    openCodeMenu(btn, idx);
+  });
+  cCode.appendChild(btn);
+  row.appendChild(cCode);
+
+  /* issues to fix */
+  var cIss = document.createElement('div');
+  cIss.className = 'c-issues';
+  cIss.dataset.label = 'issues to fix';
+  var ta = document.createElement('textarea');
+  ta.value = st.issues;
+  ta.setAttribute('aria-label', 'Issues to fix for rubric R' + (idx + 1));
+  ta.placeholder = 'What is wrong with this criterion…';
+  ta.addEventListener('input', function () {
+    rowState(idx).issues = ta.value;
+    autoGrow(ta);
+    saveReview(currentCase.id, review);
+    refreshOutput();
+  });
+  cIss.appendChild(ta);
+
+  var clr = document.createElement('button');
+  clr.type = 'button';
+  clr.className = 'rowclear';
+  clr.textContent = '×';
+  clr.title = 'Clear this row';
+  clr.setAttribute('aria-label', 'Clear codes and issues text for rubric R' + (idx + 1));
+  clr.addEventListener('click', function () {
+    review.rows[idx] = { codes: [], issues: '' };
+    saveReviewNow(currentCase.id, review);
+    renderRubrics(currentCase);
+    refreshOutput();
+  });
+  cIss.appendChild(clr);
+  row.appendChild(cIss);
+
+  requestAnimationFrame(function () { autoGrow(ta); });
+  return row;
+}
+
+function autoGrow(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(60, ta.scrollHeight) + 'px';
+}
+
+function buildRubricExpander(r) {
+  var d = document.createElement('div');
+  d.className = 'rexp';
+  var dl = document.createElement('dl');
+  function add(term, value) {
+    var dt = document.createElement('dt');
+    dt.textContent = term;
+    var dd = document.createElement('dd');
+    dd.textContent = value;
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+  add('dimension', r.dimension || '—');
+  add('source', r.source.length ? r.source.join(' · ') : '—');
+  add('bad_response_meets',
+      r.badResponseMeets === true ? 'true — the bad response already satisfies this rubric, so it does not discriminate'
+    : r.badResponseMeets === false ? 'false'
+    : '—');
+  d.appendChild(dl);
+  return d;
+}
+
+/* The table is rebuilt on every render, so the window-level drag listeners are
+   registered once in init() and read this module-level handle instead. */
+var colDrag = null;
+
+function wireResizers(table, container) {
+  container.addEventListener('mousedown', function (ev) {
+    var handle = ev.target.closest('.resizer');
+    if (!handle) return;
+    ev.preventDefault();
+    colDrag = {
+      edge: parseInt(handle.dataset.edge, 10),
+      startX: ev.clientX,
+      width: table.getBoundingClientRect().width,
+      widths: colWidths(),
+      table: table,
+      container: container
+    };
+    document.body.style.cursor = 'col-resize';
+  });
+}
+
+function onColDragMove(ev) {
+  if (!colDrag) return;
+  var deltaPct = ((ev.clientX - colDrag.startX) / colDrag.width) * 100;
+  var w = colDrag.widths.slice();
+  var a = colDrag.edge, b = colDrag.edge + 1;
+  var applied = Math.max(MIN_COL - w[a], Math.min(w[b] - MIN_COL, deltaPct));
+  w[a] += applied;
+  w[b] -= applied;
+  ui.colWidths = w;
+  colDrag.table.style.setProperty('--cols', w.map(function (n) { return n + '%'; }).join(' '));
+  var acc = 0;
+  Array.prototype.forEach.call(colDrag.container.children, function (h, i) {
+    acc += w[i];
+    h.style.left = acc + '%';
+  });
+}
+
+function onColDragEnd() {
+  if (!colDrag) return;
+  colDrag = null;
+  document.body.style.cursor = '';
+  saveUI();
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §7 ERROR-CODE CONTROL
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var openMenu = null;
+
+function codeAllowed(codeIdx, rowIdx) {
+  // 1-based array position ≥ 3. Never parsed out of the rendered id.
+  if (!ERROR_CODES[codeIdx].r3) return true;
+  return (rowIdx + 1) >= R3_MIN_POSITION;
+}
+
+function sortCodes(codes) {
+  return codes.slice().sort(function (a, b) {
+    var ai = CODE_ORDER[a], bi = CODE_ORDER[b];
+    if (ai === undefined) ai = 999;
+    if (bi === undefined) bi = 999;
+    return ai - bi;
+  });
+}
+
+function paintCodeButton(btn, codes, idx) {
+  btn.textContent = '';
+  if (!codes.length) {
+    var p = document.createElement('span');
+    p.className = 'placeholder';
+    p.textContent = 'no code — click to select';
+    btn.appendChild(p);
+  } else {
+    sortCodes(codes).forEach(function (code) {
+      var s = document.createElement('span');
+      s.className = 'codechip';
+      s.textContent = '• ' + code;
+      btn.appendChild(s);
+    });
+  }
+  btn.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1) +
+    (codes.length ? ': ' + codes.join('; ') : ': none selected'));
+}
+
+function closeCodeMenu() {
+  if (!openMenu) return;
+  if (openMenu.anchor) openMenu.anchor.setAttribute('aria-expanded', 'false');
+  openMenu.node.remove();
+  openMenu = null;
+}
+
+function openCodeMenu(anchor, idx) {
+  if (openMenu && openMenu.idx === idx) { closeCodeMenu(); return; }
+  closeCodeMenu();
+
+  var st = rowState(idx);
+  var menu = document.createElement('div');
+  menu.className = 'codemenu';
+  menu.setAttribute('role', 'group');
+  menu.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1));
+
+  var lastGroup = null;
+  ERROR_CODES.forEach(function (entry, ci) {
+    var group = entry.code.slice(0, 2); // P0 / P1 / P2
+    if (group !== lastGroup) {
+      lastGroup = group;
+      var g = document.createElement('div');
+      g.className = 'grp';
+      g.textContent = group;
+      menu.appendChild(g);
+    }
+
+    var allowed = codeAllowed(ci, idx);
+    var label = document.createElement('label');
+    if (!allowed) label.className = 'disabled';
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = st.codes.indexOf(entry.code) !== -1;
+    cb.disabled = !allowed;
+    if (!allowed) {
+      label.title = R3_REASON;
+      cb.title = R3_REASON;
+    }
+    cb.addEventListener('change', function () {
+      var s = rowState(idx);
+      var at = s.codes.indexOf(entry.code);
+      if (cb.checked && at === -1) s.codes.push(entry.code);
+      else if (!cb.checked && at !== -1) s.codes.splice(at, 1);
+      s.codes = sortCodes(s.codes);
+      paintCodeButton(anchor, s.codes, idx);
+      saveReview(currentCase.id, review);
+      refreshOutput();
+    });
+    label.appendChild(cb);
+
+    var txt = document.createElement('span');
+    txt.textContent = entry.code;
+    if (entry.r3) {
+      var note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = ' (R3+ only)';   // UI label — never emitted in output
+      txt.appendChild(note);
+    }
+    label.appendChild(txt);
+    menu.appendChild(label);
+  });
+
+  var foot = document.createElement('footer');
+  var clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'btn';
+  clear.textContent = 'Clear codes';
+  clear.addEventListener('click', function () {
+    rowState(idx).codes = [];
+    paintCodeButton(anchor, [], idx);
+    Array.prototype.forEach.call(menu.querySelectorAll('input'), function (i) { i.checked = false; });
+    saveReview(currentCase.id, review);
+    refreshOutput();
+  });
+  var done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'btn btn-primary';
+  done.textContent = 'Done';
+  done.addEventListener('click', function () { closeCodeMenu(); anchor.focus(); });
+  foot.appendChild(clear);
+  foot.appendChild(done);
+  menu.appendChild(foot);
+
+  document.body.appendChild(menu);
+  var r = anchor.getBoundingClientRect();
+  var mh = menu.offsetHeight, mw = menu.offsetWidth;
+  var top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 8) top = r.top - mh - 4;   // flip above the row
+  top = Math.max(8, Math.min(top, window.innerHeight - mh - 8)); // then clamp into view
+  var left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 10));
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+
+  anchor.setAttribute('aria-expanded', 'true');
+  openMenu = { node: menu, anchor: anchor, idx: idx };
+  menu.addEventListener('click', function (e) { e.stopPropagation(); });
+  var first = menu.querySelector('input:not(:disabled)');
+  if (first) first.focus();
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §8 OUTPUT
+   One ordered pass over (rowIndex, code) pairs, so entry N of the codes output
+   IS block N of the remarks output by construction — not by two functions
+   agreeing. That 1:1 alignment is the auditable property; splitting these into
+   independent generators is the way to break it.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function collectPairs(rubricCount) {
+  var pairs = [], orphans = [];
+  for (var i = 0; i < rubricCount; i++) {
+    var r = review.rows[i];
+    var codes = (r && Array.isArray(r.codes)) ? r.codes : [];
+    var text = (r && typeof r.issues === 'string') ? r.issues : '';
+    if (!codes.length) {
+      if (text.trim()) orphans.push('R' + (i + 1));   // text but no code → not emitted
+      continue;
+    }
+    sortCodes(codes).forEach(function (code) {
+      pairs.push({ row: i, code: code, issues: text });
+    });
+  }
+  return { pairs: pairs, orphans: orphans };
+}
+
+function buildErrorCodes(pairs) {
+  // Duplicates kept — the same error can affect several criteria.
+  return pairs.map(function (p) { return p.code; }).join('\n');
+}
+
+function buildRemarks(pairs) {
+  // Issues text repeated for each code of that row. No header line, exactly one
+  // blank line between blocks, no trailing whitespace.
+  return pairs.map(function (p) {
+    var head = 'R' + (p.row + 1) + ' ' + p.code + ':';
+    var body = p.issues.replace(/\s+$/, '');
+    return body ? head + '\n' + body : head;
+  }).join('\n\n');
+}
+
+function currentOutput() {
+  var n = currentCase ? currentCase.rubrics.length : 0;
+  var c = collectPairs(n);
+  return {
+    pairs: c.pairs,
+    orphans: c.orphans,
+    codes: buildErrorCodes(c.pairs),
+    remarks: buildRemarks(c.pairs)
+  };
+}
+
+function refreshOutput() {
+  var out = currentOutput();
+  el.outCodes.textContent = out.codes;
+  el.outRemarks.textContent = out.remarks;
+}
+
+function flash(node, message) {
+  node.textContent = message;
+  clearTimeout(node.__t);
+  node.__t = setTimeout(function () { node.textContent = ''; }, 4000);
+}
+
+function copyText(text, okNode, message) {
+  function done() { flash(okNode, message); }
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (ok) done();
+    else flash(okNode, 'Copy failed — select the text and copy manually.');
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fallback);
+  } else {
+    fallback();
+  }
+}
+
+function runCopy(kind) {
+  var out = currentOutput();
+  if (!out.pairs.length) {
+    flash(kind === 'codes' ? el.okCodes : el.okRemarks, 'Nothing to copy — no error codes selected.');
+    return;
+  }
+  if (out.orphans.length) {
+    // Non-blocking: name the rows that will be silently lost, then let it through.
+    pendingCopy = { kind: kind, out: out };
+    el.copyWarnText.textContent = '⚠ ' + out.orphans.join(', ') +
+      (out.orphans.length === 1 ? ' has' : ' have') +
+      ' issues text but no error code — not included.';
+    el.copyWarn.hidden = false;
+    el.copyAnyway.focus();
+    return;
+  }
+  doCopy(kind, out);
+}
+
+function doCopy(kind, out) {
+  var criteria = {};
+  out.pairs.forEach(function (p) { criteria[p.row] = true; });
+  var n = Object.keys(criteria).length;
+  var msg = 'Copied ' + out.pairs.length + ' block' + (out.pairs.length === 1 ? '' : 's') +
+            ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') + '.';
+  if (kind === 'codes') copyText(out.codes, el.okCodes, msg);
+  else copyText(out.remarks, el.okRemarks, msg);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §9 NAVIGATION
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var comboItems = [];
+var comboActive = -1;
+
+function filterCases(q) {
+  var needle = q.trim().toLowerCase();
+  if (!needle) return cases.map(function (c, i) { return i; });
+  return cases.reduce(function (acc, c, i) {
+    // case id and row number only — body text is not indexed
+    if (c.id.toLowerCase().indexOf(needle) !== -1 || String(c.rowNumber).indexOf(needle) !== -1) acc.push(i);
+    return acc;
+  }, []);
+}
+
+function renderCombo(open) {
+  var idxs = filterCases(el.search.value);
+  comboItems = idxs;
+  el.count.textContent = cases.length ? (idxs.length + ' of ' + cases.length + ' match') : '';
+  el.list.textContent = '';
+  idxs.forEach(function (i, pos) {
+    var c = cases[i];
+    var li = document.createElement('li');
+    li.id = 'case-opt-' + i;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', String(i === currentIndex));
+    if (pos === comboActive) li.classList.add('active');
+    var a = document.createElement('span');
+    a.textContent = c.id;
+    var b = document.createElement('span');
+    b.className = 'rowno';
+    b.textContent = '#' + c.rowNumber;
+    li.appendChild(a);
+    li.appendChild(b);
+    li.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      goTo(i);
+      closeCombo();
+    });
+    el.list.appendChild(li);
+  });
+  if (open) openCombo();
+}
+
+function openCombo() {
+  if (!cases.length) return;
+  el.list.hidden = false;
+  el.search.setAttribute('aria-expanded', 'true');
+}
+function closeCombo() {
+  el.list.hidden = true;
+  el.search.setAttribute('aria-expanded', 'false');
+  el.search.removeAttribute('aria-activedescendant');
+  comboActive = -1;
+}
+function moveCombo(delta) {
+  if (el.list.hidden) { renderCombo(true); }
+  if (!comboItems.length) return;
+  comboActive = (comboActive + delta + comboItems.length) % comboItems.length;
+  renderCombo(true);
+  var node = el.list.children[comboActive];
+  if (node) {
+    node.scrollIntoView({ block: 'nearest' });
+    el.search.setAttribute('aria-activedescendant', node.id);
+  }
+}
+
+function goTo(i) {
+  if (i < 0 || i >= cases.length) return;
+  if (currentCase) saveReviewNow(currentCase.id, review);
+  closeCodeMenu();
+  currentIndex = i;
+  currentCase = cases[i];
+  review = loadReview(currentCase.id);
+  renderCache = {};           // per-case scratch buffer, not a memo table
+  expandedRows = {};
+  el.copyWarn.hidden = true;
+  pendingCopy = null;
+  el.search.value = currentCase.id;
+  renderCase();
+  el.scroll.scrollTop = 0;
+  el.prev.disabled = (i === 0);
+  el.next.disabled = (i === cases.length - 1);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §10 CHROME
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function applyTheme() {
+  var dark = ui.theme === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.getElementById('hljs-light').disabled = dark;
+  document.getElementById('hljs-dark').disabled = !dark;
+  el.theme.textContent = dark ? '☾' : '☀';
+  el.theme.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+}
+
+function applyPromptHeight() {
+  if (Number.isFinite(ui.promptHeight)) {
+    document.documentElement.style.setProperty('--prompt-h', ui.promptHeight + 'px');
+  }
+}
+
+/* The grip moves the panel's height *cap*, which is a persisted global
+   preference. It must start from the current cap, not from the rendered height:
+   on a one-line prompt the panel is far shorter than its cap, and starting from
+   the content height would make a downward drag silently shrink the cap for
+   every other case. */
+function currentPromptCap() {
+  var bodyEl = el.pinnedPrompt.querySelector('.body');
+  return bodyEl ? parseFloat(getComputedStyle(bodyEl).maxHeight) : NaN;
+}
+
+function wireGrip() {
+  var drag = null;
+  el.grip.addEventListener('mousedown', function (ev) {
+    ev.preventDefault();
+    var cap = currentPromptCap();
+    if (!Number.isFinite(cap)) return;
+    drag = { startY: ev.clientY, startH: cap };
+    document.body.style.cursor = 'ns-resize';
+  });
+  window.addEventListener('mousemove', function (ev) {
+    if (!drag) return;
+    var h = Math.max(80, Math.min(window.innerHeight * 0.75, drag.startH + (ev.clientY - drag.startY)));
+    ui.promptHeight = Math.round(h);
+    applyPromptHeight();
+  });
+  window.addEventListener('mouseup', function () {
+    if (!drag) return;
+    drag = null;
+    document.body.style.cursor = '';
+    saveUI();
+  });
+  el.grip.addEventListener('keydown', function (ev) {
+    var step = ev.shiftKey ? 40 : 12;
+    var cur = currentPromptCap();
+    if (!Number.isFinite(cur)) return;
+    if (ev.key === 'ArrowUp') ui.promptHeight = Math.max(80, Math.round(cur - step));
+    else if (ev.key === 'ArrowDown') ui.promptHeight = Math.min(Math.round(window.innerHeight * 0.75), Math.round(cur + step));
+    else return;
+    ev.preventDefault();
+    applyPromptHeight();
+    saveUI();
+  });
+}
+
+function showReport(fileName, total, issues) {
+  if (!issues.length) { el.report.hidden = true; return; }
+  el.reportTitle.textContent = '⚠ Loaded ' + total + ' cases with ' + issues.length +
+                               ' issue' + (issues.length === 1 ? '' : 's');
+  el.reportList.textContent = '';
+  issues.forEach(function (t) {
+    var li = document.createElement('li');
+    li.textContent = '· ' + t;
+    el.reportList.appendChild(li);
+  });
+  el.report.hidden = false;
+}
+
+function confirmDialog(title, body, onYes) {
+  el.dlgTitle.textContent = title;
+  el.dlgBody.textContent = body;
+  el.dialog.__onYes = onYes;
+  el.dialog.showModal();
+}
+
+function setAllPanelLangs(lang) {
+  ['user_prompt', 'rubrics'].concat(PANELS.map(function (p) { return p.id; })).forEach(function (id) {
+    ui.panelLangs[id] = lang;
+  });
+  saveUI();
+  renderCase();
+}
+
+function toggleCollapseAll() {
+  var ids = ['user_prompt'].concat(PANELS.map(function (p) { return p.id; }));
+  var anyOpen = ids.some(function (id) { return !ui.panelCollapsed[id]; });
+  ids.forEach(function (id) { ui.panelCollapsed[id] = anyOpen; });
+  saveUI();
+  el.collapseAll.textContent = anyOpen ? '⇵ expand all' : '⇵ collapse all';
+  renderCase();
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §11 RENDER + INIT
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function renderCase() {
+  var c = currentCase;
+  if (!c) return;
+  renderHeaderStrip(c);
+  renderPinnedPrompt(c);
+  renderPanels(c);
+  renderAgentPanes(c);
+  renderRubrics(c);
+
+  el.general.value = review.remarks;
+  refreshOutput();
+
+  el.otherList.textContent = '';
+  OTHER_FIELDS.forEach(function (pair) {
+    var dt = document.createElement('dt');
+    dt.textContent = pair[0];
+    var dd = document.createElement('dd');
+    dd.textContent = c.otherFields[pair[0]] || '—';
+    el.otherList.appendChild(dt);
+    el.otherList.appendChild(dd);
+  });
+
+  el.globalZh.setAttribute('aria-pressed', 'false');
+  el.globalEn.setAttribute('aria-pressed', 'false');
+  el.empty.hidden = true;
+  el.caseBody.hidden = false;
+}
+
+function loadCSVText(text, fileName) {
+  var parsed = Papa.parse(text, { header: true, skipEmptyLines: 'greedy' });
+
+  var fields = (parsed.meta.fields || []).map(normKey);
+  var chunks = buildChunkIndex(fields);
+
+  var issues = [];
+  (parsed.errors || []).slice(0, 12).forEach(function (e) {
+    issues.push('CSV parse — row ' + (e.row === undefined ? '?' : e.row + 1) + ': ' + e.message);
+  });
+
+  var built = [];
+  parsed.data.forEach(function (raw, i) {
+    var row = {};
+    Object.keys(raw).forEach(function (k) { row[normKey(k)] = raw[k]; });
+    var c = buildCase(row, chunks, i + 1);
+    c.issues.forEach(function (t) { issues.push('case ' + c.id + ' — ' + t); });
+    built.push(c);
+  });
+
+  if (!built.length) {
+    issues.push('No data rows found — check that the file has a header row.');
+  }
+
+  cases = built;
+  var rubricTotal = cases.reduce(function (n, c) { return n + c.rubrics.length; }, 0);
+  el.fileMeta.textContent = fileName + ' — ' + cases.length.toLocaleString() + ' cases, ' +
+                            rubricTotal.toLocaleString() + ' rubrics';
+  el.search.disabled = false;
+  showReport(fileName, cases.length, issues);
+  renderCombo(false);
+
+  var prevName = lsGet(LS.csvName, null);
+  lsSet(LS.csvName, fileName);
+
+  function start() { if (cases.length) goTo(0); }
+
+  if (prevName && prevName !== fileName && allReviewKeys().length) {
+    confirmDialog(
+      'Different CSV loaded',
+      'Review data on this machine was saved against "' + prevName + '". Keep it (it is keyed by ' +
+      'case id, so it will reattach to any matching case), or clear all stored review data and start fresh?',
+      function (yes) {
+        if (yes) {
+          allReviewKeys().forEach(lsDel);
+        }
+        start();
+      },
+      true
+    );
+    el.dlgYes.textContent = 'Clear all';
+    el.dlgNo.textContent = 'Keep';
+  } else {
+    start();
+  }
+}
+
+function handleFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function () { loadCSVText(String(reader.result), file.name); };
+  reader.onerror = function () {
+    showReport(file.name, 0, ['Could not read the file: ' + (reader.error && reader.error.message)]);
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function init() {
+  applyTheme();
+  applyPromptHeight();
+  wireGrip();
+  window.addEventListener('mousemove', onColDragMove);
+  window.addEventListener('mouseup', onColDragEnd);
+
+  el.fileInput.addEventListener('change', function () { handleFile(el.fileInput.files[0]); });
+
+  var dragDepth = 0;
+  window.addEventListener('dragenter', function (ev) {
+    ev.preventDefault();
+    dragDepth++;
+    el.dropOverlay.hidden = false;
+  });
+  window.addEventListener('dragover', function (ev) { ev.preventDefault(); });
+  window.addEventListener('dragleave', function () {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) el.dropOverlay.hidden = true;
+  });
+  window.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    dragDepth = 0;
+    el.dropOverlay.hidden = true;
+    if (ev.dataTransfer && ev.dataTransfer.files.length) handleFile(ev.dataTransfer.files[0]);
+  });
+
+  el.prev.addEventListener('click', function () { goTo(currentIndex - 1); });
+  el.next.addEventListener('click', function () { goTo(currentIndex + 1); });
+
+  el.search.addEventListener('input', function () { comboActive = -1; renderCombo(true); });
+  el.search.addEventListener('focus', function () { el.search.select(); renderCombo(true); });
+  el.search.addEventListener('blur', function () { setTimeout(closeCombo, 120); });
+  el.search.addEventListener('keydown', function (ev) {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); moveCombo(1); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveCombo(-1); }
+    else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      var pick = comboActive >= 0 ? comboItems[comboActive] : comboItems[0];
+      if (pick !== undefined) { goTo(pick); closeCombo(); el.search.blur(); }
+    } else if (ev.key === 'Escape') { closeCombo(); }
+  });
+
+  el.globalZh.addEventListener('click', function () { setAllPanelLangs('zh'); });
+  el.globalEn.addEventListener('click', function () { setAllPanelLangs('en'); });
+  el.collapseAll.addEventListener('click', toggleCollapseAll);
+
+  el.theme.addEventListener('click', function () {
+    ui.theme = ui.theme === 'dark' ? 'light' : 'dark';
+    saveUI();
+    applyTheme();
+  });
+
+  el.dismissReport.addEventListener('click', function () { el.report.hidden = true; });
+
+  el.general.addEventListener('input', function () {
+    review.remarks = el.general.value;
+    if (currentCase) saveReview(currentCase.id, review);
+  });
+
+  el.copyCodes.addEventListener('click', function () { runCopy('codes'); });
+  el.copyRemarks.addEventListener('click', function () { runCopy('remarks'); });
+  el.copyGeneral.addEventListener('click', function () {
+    copyText(el.general.value, el.okGeneral, 'Copied general remarks.');
+  });
+  el.copyAnyway.addEventListener('click', function () {
+    if (pendingCopy) doCopy(pendingCopy.kind, pendingCopy.out);
+    el.copyWarn.hidden = true;
+    pendingCopy = null;
+  });
+  el.copyCancel.addEventListener('click', function () {
+    el.copyWarn.hidden = true;
+    pendingCopy = null;
+  });
+
+  el.clearCase.addEventListener('click', function () {
+    if (!currentCase) return;
+    confirmDialog('Clear this case?',
+      'Removes every error code, all issues text and the general remarks for case ' +
+      currentCase.id + '. This cannot be undone.',
+      function (yes) {
+        if (!yes) return;
+        review = { rows: {}, remarks: '' };
+        lsDel(reviewKey(currentCase.id));
+        renderCase();
+      });
+    el.dlgYes.textContent = 'Clear this case';
+    el.dlgNo.textContent = 'Cancel';
+  });
+
+  el.clearAll.addEventListener('click', function () {
+    var n = allReviewKeys().length;
+    confirmDialog('Clear all review data?',
+      'This wipes stored review data for all ' + n + ' case' + (n === 1 ? '' : 's') +
+      ' on this machine, not just the current one. This cannot be undone.',
+      function (yes) {
+        if (!yes) return;
+        confirmDialog('Really clear all ' + n + ' cases?',
+          'Last chance — every error code and every note you have written is about to be deleted.',
+          function (really) {
+            if (!really) return;
+            allReviewKeys().forEach(lsDel);
+            review = { rows: {}, remarks: '' };
+            if (currentCase) renderCase();
+          });
+        el.dlgYes.textContent = 'Delete everything';
+        el.dlgNo.textContent = 'Cancel';
+      });
+    el.dlgYes.textContent = 'Continue';
+    el.dlgNo.textContent = 'Cancel';
+  });
+
+  el.dlgYes.addEventListener('click', function () {
+    var fn = el.dialog.__onYes;
+    el.dialog.close();
+    if (fn) fn(true);
+  });
+  el.dlgNo.addEventListener('click', function () {
+    var fn = el.dialog.__onYes;
+    el.dialog.close();
+    if (fn) fn(false);
+  });
+
+  document.addEventListener('click', function () { closeCodeMenu(); });
+  // The menu is viewport-anchored, so it cannot follow its row.
+  el.scroll.addEventListener('scroll', closeCodeMenu);
+  window.addEventListener('resize', closeCodeMenu);
+
+  /* Shortcuts. Guarded so they never fire from inside a textarea (except Esc).
+     No single-letter shortcuts. */
+  document.addEventListener('keydown', function (ev) {
+    var t = ev.target;
+    var typing = t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT');
+
+    if (ev.key === 'Escape') {
+      if (openMenu) { closeCodeMenu(); return; }
+      if (!el.list.hidden) { closeCombo(); return; }
+      if (el.dialog.open) { el.dialog.close(); return; }
+      if (!el.copyWarn.hidden) { el.copyWarn.hidden = true; pendingCopy = null; }
+      return;
+    }
+    if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'k' || ev.key === 'K')) {
+      ev.preventDefault();
+      el.search.focus();
+      return;
+    }
+    if (typing) return;
+    if (ev.altKey && ev.key === 'ArrowLeft')  { ev.preventDefault(); goTo(currentIndex - 1); }
+    if (ev.altKey && ev.key === 'ArrowRight') { ev.preventDefault(); goTo(currentIndex + 1); }
+  });
+
+  window.addEventListener('beforeunload', function () {
+    if (currentCase) saveReviewNow(currentCase.id, review);
+  });
+}
+
+init();
+})();
+</script>
+</body>
+</html>
