@@ -2233,14 +2233,17 @@ function openCodeMenu(anchor, target) {
 
 /* ══════════════════════════════════════════════════════════════════════════
    §8 OUTPUT
-   One ordered pass over (rowIndex, code) pairs feeds both cells. Each pair now
-   carries its OWN text, which is the point of the per-code boxes.
+   One ordered pass over (scope, code) pairs feeds both cells. Each pair carries
+   its OWN text, which is the point of the per-code boxes.
 
-   The two cells are deliberately NOT positionally aligned (changed 2026-08-05):
-   the codes cell is a deduplicated set in canonical order, the remarks cell a
-   per-pair list in table order, so a code used on two rubrics appears once in
-   one and twice in the other. The `R<n>` prefix is what locates a remarks block
-   now that its position no longer does.
+   BOTH CELLS ARE KEYED BY CODE (changed 2026-08-05, later). The remarks cell is
+   grouped by error code, not by rubric: one group per distinct code, in the same
+   canonical order and over the same set as the codes cell, with one entry per
+   scope that carries it — `ALL` first, then `R<n>` in table order.
+
+   So group N of the remarks cell IS entry N of the codes cell again. That 1:1
+   audit was lost when the codes cell was deduplicated; grouping restores it,
+   because grouping is the same dedup applied to the remarks side.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function collectPairs(rubricCount) {
@@ -2283,19 +2286,28 @@ function block(head, text) {
   return body ? head + '\n' + body : head;
 }
 
-/* Widest scope first: the case-level code, then the whole-rubrics codes, then
-   one block per (rubric, code) — each with that code's own text. No header
-   line, exactly one blank line between blocks, no trailing whitespace. */
+/* Grouped by error code. Each group is `<code>:` followed immediately by one
+   entry per scope carrying it — `ALL:` first, then `R<n>:` in table order —
+   each entry being its label and that scope's own text. One blank line between
+   entries and between groups; no header line, no trailing whitespace.
+
+   The case-level code names no rubric, so it is a group with no entries: its
+   header sits directly above its comment. */
 function buildRemarks(pairs, setPairs, lang) {
-  var blocks = [];
-  if (lang.on) blocks.push(block(CASE_LEVEL_CODE + ':', lang.note));
-  setPairs.forEach(function (p) {
-    blocks.push(block(SET_PREFIX + ' ' + p.code + ':', p.issues));
+  var groups = [];
+  if (lang.on) groups.push(block(CASE_LEVEL_CODE + ':', lang.note));
+
+  // Bucket by code. Set entries are pushed first so they lead their group, and
+  // `pairs` arrives in table order, so rows stay ascending within a bucket.
+  var byCode = {};
+  function bucket(code) { return (byCode[code] = byCode[code] || []); }
+  setPairs.forEach(function (p) { bucket(p.code).push(block(SET_PREFIX + ':', p.issues)); });
+  pairs.forEach(function (p) { bucket(p.code).push(block('R' + (p.row + 1) + ':', p.issues)); });
+
+  sortCodes(Object.keys(byCode)).forEach(function (code) {
+    groups.push(code + ':\n' + byCode[code].join('\n\n'));
   });
-  pairs.forEach(function (p) {
-    blocks.push(block('R' + (p.row + 1) + ' ' + p.code + ':', p.issues));
-  });
-  return blocks.join('\n\n');
+  return groups.join('\n\n');
 }
 
 function currentOutput() {
@@ -2367,9 +2379,10 @@ function joinList(parts) {
   return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
 }
 
-/* The two counts differ whenever a code repeats across scopes or rubrics —
-   expected, and the cheapest available check that the dedup did what it
-   should. The phrase names every scope that contributed. */
+/* The remarks count reports entries AND groups: the group count must equal the
+   codes count (both cells are the same deduplicated set of codes), while more
+   entries than groups is exactly how many times a code repeats across scopes or
+   rubrics. The phrase names every scope that contributed. */
 function doCopy(kind, out) {
   var criteria = {};
   out.pairs.forEach(function (p) { criteria[p.row] = true; });
@@ -2387,9 +2400,11 @@ function doCopy(kind, out) {
     copyText(out.codes, el.okCodes,
              'Copied ' + k + ' error code' + (k === 1 ? '' : 's') + from);
   } else {
-    var b = out.pairs.length + s + (out.langReqOn ? 1 : 0);
+    var e = out.pairs.length + s + (out.langReqOn ? 1 : 0);
+    var g = out.codeList.length;
     copyText(out.remarks, el.okRemarks,
-             'Copied ' + b + ' block' + (b === 1 ? '' : 's') + from);
+             'Copied ' + e + ' entr' + (e === 1 ? 'y' : 'ies') +
+             ' under ' + g + ' code' + (g === 1 ? '' : 's') + from);
   }
 }
 
