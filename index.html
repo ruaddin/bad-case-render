@@ -456,9 +456,7 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
   padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13.5px;
 }
 .codemenu label:hover { background: var(--surface-raised); }
-.codemenu label.disabled { color: var(--text-faint); cursor: not-allowed; }
 .codemenu input { margin-top: 4px; flex: 0 0 auto; }
-.codemenu .note { font-size: 11px; color: var(--text-muted); }
 .codemenu footer {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 6px 4px 2px; border-top: 1px solid var(--border); margin-top: 6px;
@@ -482,6 +480,23 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
 .outbox:empty::before { content: 'No error codes selected yet.'; color: var(--text-muted); font-style: italic; }
 #generalRemarks {
   width: 100%; min-height: 76px; resize: vertical;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); font-size: 15px;
+}
+/* Case-level code — belongs to the case, not to any rubric row, so it lives
+   above the generated cells rather than in the rubrics table. */
+.caselevel {
+  border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+  margin-bottom: 14px; background: var(--surface-raised);
+}
+.caselevel .row { display: flex; align-items: center; gap: 10px; }
+.caselevel .cl-check {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 500; font-size: 14px; cursor: pointer;
+}
+.caselevel .ro-note { font-size: 12px; color: var(--text-muted); }
+#langReqNote {
+  width: 100%; min-height: 60px; resize: vertical; margin-top: 9px;
   padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--surface); font-size: 15px;
 }
@@ -622,6 +637,18 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
       <div class="final">
         <h2>Final</h2>
 
+        <div class="caselevel">
+          <div class="row">
+            <label class="cl-check" for="langReqCheck">
+              <input type="checkbox" id="langReqCheck">
+              <span>P0 Missing Language Requirement</span>
+            </label>
+            <span class="ro-note">case-level · independent of any rubric</span>
+          </div>
+          <textarea id="langReqNote" hidden aria-label="Comment for P0 Missing Language Requirement"
+                    placeholder="Why this code applies to the case…"></textarea>
+        </div>
+
         <div class="outfield">
           <div class="row">
             <label id="lblCodes">Final Error Codes</label>
@@ -700,8 +727,7 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* Canonical order. Governs both menu order and output ordering.
-   `r3` marks the two codes that only apply from the third rubric row onward —
-   both are judgments about a rubric *set*, which needs ≥3 rows to assess. */
+   Every code applies to every criterion — there is no positional gate. */
 var ERROR_CODES = [
   { code: 'P0 Inauthenticity / Fabrication / False Capability' },
   { code: 'P0 Unmet Demands / Missing Critical Element' },
@@ -711,19 +737,20 @@ var ERROR_CODES = [
   { code: 'P1 Rubric is Not Self-Contained' },
   { code: 'P1 Unreasonable Rubric Weightage' },
   { code: 'P1 Rubrics Redundancy (Fluff / Bonus Bloat)' },
-  { code: 'P1 Rubrics Lack Atomicity', r3: true },
+  { code: 'P1 Rubrics Lack Atomicity' },
   { code: 'P2 Rubrics not in Chinese' },
   { code: 'P2 Rubrics Lack Prompt Specificity' },
-  { code: 'P2 Repetitive / Overlapping / Contradictory', r3: true },
+  { code: 'P2 Repetitive / Overlapping / Contradictory' },
   { code: 'P2 Homogenous / Undifferentiated Weightage' },
   { code: 'P2 Weak Pitfall ("Others")' }
 ];
 var CODE_ORDER = {};
 ERROR_CODES.forEach(function (c, i) { CODE_ORDER[c.code] = i; });
 
-/* R3+ gate: 1-based array position ≥ 3. Never parsed out of the rendered id. */
-var R3_MIN_POSITION = 3;
-var R3_REASON = 'Only applies from the third rubric onward — it is a judgment about the rubric set.';
+/* Case-level code. Judged against the case as a whole, so it is deliberately
+   NOT in ERROR_CODES — it never appears in a rubric row's picker. It leads both
+   generated cells when checked. */
+var CASE_LEVEL_CODE = 'P0 Missing Language Requirement';
 
 /* Column names are matched case-insensitively and whitespace-normalized, so
    these are written lowercase. Source headers keep their original casing
@@ -842,6 +869,12 @@ function loadReview(caseId) {
   if (!r || typeof r !== 'object') r = {};
   if (!r.rows || typeof r.rows !== 'object') r.rows = {};
   if (typeof r.remarks !== 'string') r.remarks = '';
+  var lr = r.langReq;
+  r.langReq = {
+    on: !!(lr && lr.on),
+    // Unchecked carries no note, matching the row rule: no code → no text.
+    note: (lr && lr.on && typeof lr.note === 'string') ? lr.note : ''
+  };
   return r;
 }
 var saveReviewNow = function (caseId, review) {
@@ -851,8 +884,9 @@ var saveReviewNow = function (caseId, review) {
     var r = review.rows[k];
     if (r && r.codes && r.codes.length) rows[k] = r;   // no codes → no text to keep
   });
-  if (!Object.keys(rows).length && !review.remarks) lsDel(reviewKey(caseId));
-  else lsSet(reviewKey(caseId), { rows: rows, remarks: review.remarks });
+  var lang = langReqState(review);
+  if (!Object.keys(rows).length && !review.remarks && !lang.on) lsDel(reviewKey(caseId));
+  else lsSet(reviewKey(caseId), { rows: rows, remarks: review.remarks, langReq: lang });
 };
 var saveReview = debounce(saveReviewNow, 250);
 
@@ -1176,7 +1210,7 @@ function splitTurns(text) {
 var cases = [];
 var currentIndex = -1;
 var currentCase = null;
-var review = { rows: {}, remarks: '' };
+var review = { rows: {}, remarks: '', langReq: { on: false, note: '' } };
 var rawFlags = {};        // panelId -> bool. Session only, per spec's UI-prefs list.
 var expandedRows = {};    // rowIndex -> bool. Session only.
 var renderCache = {};     // panelId|lang|raw -> HTML. Cleared on navigation.
@@ -1198,12 +1232,19 @@ var el = {
   copyCodes: $('#copyCodes'), copyRemarks: $('#copyRemarks'), copyGeneral: $('#copyGeneral'),
   okCodes: $('#okCodes'), okRemarks: $('#okRemarks'), okGeneral: $('#okGeneral'),
   general: $('#generalRemarks'),
+  langReqCheck: $('#langReqCheck'), langReqNote: $('#langReqNote'),
   clearCase: $('#clearCase'), clearAll: $('#clearAll'),
   other: $('#otherFields'), otherList: $('#otherFieldsList'),
   scroll: $('#scrollArea'), dropOverlay: $('#dropOverlay'),
   dialog: $('#confirmDialog'), dlgTitle: $('#confirmTitle'), dlgBody: $('#confirmBody'),
   dlgYes: $('#confirmYes'), dlgNo: $('#confirmNo')
 };
+
+function langReqState(r) {
+  var target = r || review;
+  if (!target.langReq || typeof target.langReq !== 'object') target.langReq = { on: false, note: '' };
+  return target.langReq;
+}
 
 function panelLang(id) { return ui.panelLangs[id] === 'zh' ? 'zh' : 'en'; }  // ENG on first load
 function isCollapsed(id) { return !!ui.panelCollapsed[id]; }
@@ -1997,12 +2038,6 @@ function onColDragEnd() {
 
 var openMenu = null;
 
-function codeAllowed(codeIdx, rowIdx) {
-  // 1-based array position ≥ 3. Never parsed out of the rendered id.
-  if (!ERROR_CODES[codeIdx].r3) return true;
-  return (rowIdx + 1) >= R3_MIN_POSITION;
-}
-
 function sortCodes(codes) {
   return codes.slice().sort(function (a, b) {
     var ai = CODE_ORDER[a], bi = CODE_ORDER[b];
@@ -2042,7 +2077,7 @@ function openCodeMenu(anchor, idx) {
   menu.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1));
 
   var lastGroup = null;
-  ERROR_CODES.forEach(function (entry, ci) {
+  ERROR_CODES.forEach(function (entry) {
     var group = entry.code.slice(0, 2); // P0 / P1 / P2
     if (group !== lastGroup) {
       lastGroup = group;
@@ -2052,18 +2087,11 @@ function openCodeMenu(anchor, idx) {
       menu.appendChild(g);
     }
 
-    var allowed = codeAllowed(ci, idx);
     var label = document.createElement('label');
-    if (!allowed) label.className = 'disabled';
 
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = st.codes.indexOf(entry.code) !== -1;
-    cb.disabled = !allowed;
-    if (!allowed) {
-      label.title = R3_REASON;
-      cb.title = R3_REASON;
-    }
     cb.addEventListener('change', function () {
       var s = rowState(idx);
       var at = s.codes.indexOf(entry.code);
@@ -2079,12 +2107,6 @@ function openCodeMenu(anchor, idx) {
 
     var txt = document.createElement('span');
     txt.textContent = entry.code;
-    if (entry.r3) {
-      var note = document.createElement('span');
-      note.className = 'note';
-      note.textContent = ' (R3+ only)';   // UI label — never emitted in output
-      txt.appendChild(note);
-    }
     label.appendChild(txt);
     menu.appendChild(label);
   });
@@ -2130,7 +2152,7 @@ function openCodeMenu(anchor, idx) {
   anchor.setAttribute('aria-expanded', 'true');
   openMenu = { node: menu, anchor: anchor, idx: idx, dirty: false };
   menu.addEventListener('click', function (e) { e.stopPropagation(); });
-  var first = menu.querySelector('input:not(:disabled)');
+  var first = menu.querySelector('input');
   if (first) first.focus();
 }
 
@@ -2173,26 +2195,35 @@ function distinctCodes(pairs) {
   return sortCodes(out);
 }
 
-function buildRemarks(pairs) {
-  // One block per (rubric, code), each with that code's own text. No header
-  // line, exactly one blank line between blocks, no trailing whitespace.
-  return pairs.map(function (p) {
-    var head = 'R' + (p.row + 1) + ' ' + p.code + ':';
-    var body = p.issues.replace(/\s+$/, '');
-    return body ? head + '\n' + body : head;
-  }).join('\n\n');
+function block(head, text) {
+  var body = text.replace(/\s+$/, '');
+  return body ? head + '\n' + body : head;
+}
+
+function buildRemarks(pairs, lead) {
+  // One block per (rubric, code), each with that code's own text, led by the
+  // case-level block when it applies. No header line, exactly one blank line
+  // between blocks, no trailing whitespace.
+  var blocks = pairs.map(function (p) {
+    return block('R' + (p.row + 1) + ' ' + p.code + ':', p.issues);
+  });
+  return (lead ? [lead].concat(blocks) : blocks).join('\n\n');
 }
 
 function currentOutput() {
   var n = currentCase ? currentCase.rubrics.length : 0;
   var pairs = collectPairs(n);
+  var lang = langReqState();
   var codes = distinctCodes(pairs);
+  // Case-level, so it has no canonical slot among the rubric codes — it leads.
+  if (lang.on) codes = [CASE_LEVEL_CODE].concat(codes);
   return {
     pairs: pairs,
+    langReqOn: lang.on,
     codeList: codes,
     codes: codes.join(','),        // clipboard form
     codesDisplay: codes.join('\n'),// on-screen preview — same set, one per line
-    remarks: buildRemarks(pairs)
+    remarks: buildRemarks(pairs, lang.on ? block(CASE_LEVEL_CODE + ':', lang.note) : null)
   };
 }
 
@@ -2232,7 +2263,7 @@ function copyText(text, okNode, message) {
 
 function runCopy(kind) {
   var out = currentOutput();
-  if (!out.pairs.length) {
+  if (!out.pairs.length && !out.langReqOn) {
     flash(kind === 'codes' ? el.okCodes : el.okRemarks, 'Nothing to copy — no error codes selected.');
     return;
   }
@@ -2245,13 +2276,16 @@ function doCopy(kind, out) {
   var criteria = {};
   out.pairs.forEach(function (p) { criteria[p.row] = true; });
   var n = Object.keys(criteria).length;
-  var from = ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') + '.';
+  var from = n
+    ? ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') +
+      (out.langReqOn ? ', plus the case-level language requirement.' : '.')
+    : ' — the case-level language requirement only.';
   if (kind === 'codes') {
     var k = out.codeList.length;
     copyText(out.codes, el.okCodes,
              'Copied ' + k + ' error code' + (k === 1 ? '' : 's') + from);
   } else {
-    var b = out.pairs.length;
+    var b = out.pairs.length + (out.langReqOn ? 1 : 0);
     copyText(out.remarks, el.okRemarks,
              'Copied ' + b + ' block' + (b === 1 ? '' : 's') + from);
   }
@@ -2449,6 +2483,13 @@ function toggleCollapseAll() {
    §11 RENDER + INIT
    ══════════════════════════════════════════════════════════════════════════ */
 
+function renderLangReq() {
+  var lang = langReqState();
+  el.langReqCheck.checked = lang.on;
+  el.langReqNote.hidden = !lang.on;     // no code → no box, as on a rubric row
+  el.langReqNote.value = lang.note;
+}
+
 function renderCase() {
   var c = currentCase;
   if (!c) return;
@@ -2459,6 +2500,7 @@ function renderCase() {
   renderRubrics(c);
 
   el.general.value = review.remarks;
+  renderLangReq();
   refreshOutput();
 
   el.otherList.textContent = '';
@@ -2604,6 +2646,22 @@ function init() {
     if (currentCase) saveReview(currentCase.id, review);
   });
 
+  el.langReqCheck.addEventListener('change', function () {
+    var lang = langReqState();
+    lang.on = el.langReqCheck.checked;
+    if (!lang.on) lang.note = '';       // unchecking discards its text, as on a rubric row
+    renderLangReq();
+    if (currentCase) saveReviewNow(currentCase.id, review);
+    refreshOutput();
+    if (lang.on) el.langReqNote.focus();
+  });
+
+  el.langReqNote.addEventListener('input', function () {
+    langReqState().note = el.langReqNote.value;
+    if (currentCase) saveReview(currentCase.id, review);
+    refreshOutput();
+  });
+
   el.copyCodes.addEventListener('click', function () { runCopy('codes'); });
   el.copyRemarks.addEventListener('click', function () { runCopy('remarks'); });
   el.copyGeneral.addEventListener('click', function () {
@@ -2616,7 +2674,7 @@ function init() {
       currentCase.id + '. This cannot be undone.',
       function (yes) {
         if (!yes) return;
-        review = { rows: {}, remarks: '' };
+        review = { rows: {}, remarks: '', langReq: { on: false, note: '' } };
         lsDel(reviewKey(currentCase.id));
         renderCase();
       });
@@ -2636,7 +2694,7 @@ function init() {
           function (really) {
             if (!really) return;
             allReviewKeys().forEach(lsDel);
-            review = { rows: {}, remarks: '' };
+            review = { rows: {}, remarks: '', langReq: { on: false, note: '' } };
             if (currentCase) renderCase();
           });
         el.dlgYes.textContent = 'Delete everything';
