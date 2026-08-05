@@ -364,6 +364,15 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
 .rhead + .rrow, .rbody > .rrow:first-child { border-top: 0; }
 .rrow > div { padding: 8px 10px; min-width: 0; }
 .rrow.misaligned { background: var(--tint-misaligned); }
+
+/* One grid line per selected code; id / criterion / weight span all of them.
+   `--lines` is set per row in buildRubricRow. Auto-placement then fills the
+   code and issues columns line by line, skipping the spanned cells. */
+.rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: span var(--lines, 1); }
+.rrow > .c-code, .rrow > .c-issues { border-top: 1px dotted var(--border); }
+.rrow > .line-first { border-top: 0; }
+
+.c-id { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .c-id .expander {
   background: none; border: 0; cursor: pointer; padding: 2px 4px;
   font-family: var(--font-mono); font-weight: 700; font-size: 13px;
@@ -375,31 +384,35 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
   display: inline-block; font-family: var(--font-mono); font-size: 12px;
   background: var(--chip-bg); border-radius: 6px; padding: 1px 8px; white-space: nowrap;
 }
-.c-issues { position: relative; }
 .c-issues textarea {
-  width: 100%; min-height: 60px; resize: vertical; overflow: hidden;
-  padding: 6px 8px; padding-right: 26px;
+  /* Short per-code notes now, not one paragraph per criterion — a low floor
+     keeps a three-code rubric from opening 200px tall. Auto-grow does the rest. */
+  width: 100%; min-height: 40px; resize: vertical; overflow: hidden;
+  padding: 6px 8px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--surface); font-size: 14px; line-height: 1.5;
 }
 .rowclear {
-  position: absolute; top: 12px; right: 14px;
-  background: none; border: 0; cursor: pointer; padding: 0 4px;
+  background: none; border: 0; cursor: pointer; padding: 1px 6px;
   color: var(--text-muted); font-size: 15px; line-height: 1; border-radius: 4px;
 }
 .rowclear:hover { color: var(--danger); background: var(--surface-raised); }
 
+.c-code { position: relative; display: flex; gap: 4px; align-items: flex-start; }
 .codebtn {
-  width: 100%; text-align: left; min-height: 34px;
+  flex: 1; text-align: left; min-height: 34px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-  padding: 5px 8px; cursor: pointer; font-size: 13px;
-}
-.codebtn:hover { border-color: var(--border-strong); }
-.codebtn .placeholder { color: var(--text-muted); }
-.codebtn .codechip {
-  display: block; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45;
+  padding: 5px 8px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45;
   word-break: break-word;
 }
+.codebtn:hover { border-color: var(--border-strong); }
+.codebtn .placeholder { font-family: var(--font-ui); font-size: 13px; color: var(--text-muted); }
+.linedel {
+  flex: none; background: none; border: 0; cursor: pointer; padding: 4px 5px;
+  color: var(--text-muted); font-size: 15px; line-height: 1; border-radius: 4px;
+}
+.linedel:hover { color: var(--danger); background: var(--surface-raised); }
 
 .resizers { position: absolute; inset: 0; pointer-events: none; }
 .resizer {
@@ -529,7 +542,12 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
     margin-bottom: 2px;
   }
   .c-id::before { display: none; }
-  .rowclear { top: 30px; right: 18px; }
+  /* Single column: drop the spans and let the pairs stack in DOM order —
+     id, criterion, weight, then each code directly above its own box. */
+  .rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: auto; }
+  .rrow > .c-code, .rrow > .c-issues { border-top: 0; }
+  .rrow > .c-code { padding-top: 8px; }
+  .c-id { flex-direction: row; align-items: center; gap: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -626,14 +644,6 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
           <pre class="outbox" id="outRemarks" tabindex="0" aria-labelledby="lblRemarks"></pre>
         </div>
 
-        <div class="inline-warn" id="copyWarn" hidden role="alert">
-          <div id="copyWarnText"></div>
-          <div style="margin-top:8px; display:flex; gap:8px;">
-            <button type="button" class="btn btn-primary" id="copyAnyway">Copy anyway</button>
-            <button type="button" class="btn" id="copyCancel">Cancel</button>
-          </div>
-        </div>
-
         <div class="outfield">
           <div class="row">
             <label for="generalRemarks">general remarks</label>
@@ -724,8 +734,7 @@ var TRANSLATION_MAP = {
   model_response:   { zh: 'model_response',   en: 'model_response_translated' },
   chat_history:     { zh: 'chat_history',     en: 'chat_history_translated' },
   post_user_prompt: { zh: 'post_user_prompt', en: 'post_user_prompt_translated' },
-  judge_reasons:    { zh: 'badcase_judge_reasons', en: 'badcase_judge_reasons_translate' },
-  alignment:        { zh: 'step4_rubric_alignment.reasons', en: null } // en lives inside the step4 blob
+  judge_reasons:    { zh: 'badcase_judge_reasons', en: 'badcase_judge_reasons_translate' }
 };
 
 var COL = {
@@ -774,7 +783,7 @@ var EXCEL_CELL_LIMIT = 32767;
 var MISALIGNED_BASE = 0;
 
 /* Exist only inside the step3 blob; no Chinese source anywhere in the file. */
-var ENGLISH_ONLY_FIELDS = ['reference', 'rubric_summary', 'decision', 'failure_type', 'target_capability'];
+var ENGLISH_ONLY_FIELDS = ['decision', 'failure_type', 'target_capability'];
 
 var LS = {
   csvName: 'brv:csvName',
@@ -782,14 +791,14 @@ var LS = {
   casePfx: 'brv:case:'
 };
 
+/* `reference`, `alignment reasons` and `rubric_summary` were removed 2026-08-05 —
+   noise the adjudicator does not read. The step4 blob is still parsed: the
+   aligned/severity header chips and the misaligned row tint come from it. */
 var PANELS = [
   { id: 'model_response',   title: 'model_response',        lang: true,  raw: true,  turns: false },
-  { id: 'reference',        title: 'reference [ENG only]',  lang: false, raw: true,  turns: false },
   { id: 'chat_history',     title: 'chat_history',          lang: true,  raw: true,  turns: true },
   { id: 'post_user_prompt', title: 'post_user_prompt',      lang: true,  raw: true,  turns: true },
-  { id: 'judge_reasons',    title: 'badcase_judge_reasons', lang: true,  raw: false, turns: false },
-  { id: 'alignment',        title: 'alignment reasons',     lang: true,  raw: false, turns: false },
-  { id: 'rubric_summary',   title: 'rubric_summary [ENG only]', lang: false, raw: false, turns: false }
+  { id: 'judge_reasons',    title: 'badcase_judge_reasons', lang: true,  raw: false, turns: false }
 ];
 
 
@@ -840,7 +849,7 @@ var saveReviewNow = function (caseId, review) {
   var rows = {};
   Object.keys(review.rows).forEach(function (k) {
     var r = review.rows[k];
-    if (r && ((r.codes && r.codes.length) || (r.issues && r.issues.length))) rows[k] = r;
+    if (r && r.codes && r.codes.length) rows[k] = r;   // no codes → no text to keep
   });
   if (!Object.keys(rows).length && !review.remarks) lsDel(reviewKey(caseId));
   else lsSet(reviewKey(caseId), { rows: rows, remarks: review.remarks });
@@ -1030,26 +1039,6 @@ function buildCase(row, chunks, rowNumber) {
     severity:         step4 && step4.severity !== undefined ? step4.severity : null
   };
 
-  panels.reference = {
-    zh: '', en: fromStep3('reference') == null ? '' : String(fromStep3('reference')),
-    zhMissing: true, enMissing: fromStep3('reference') == null,
-    enTruncated: false, zhTruncated: false, englishOnly: true
-  };
-  panels.rubric_summary = {
-    zh: '', en: fromStep3('rubric_summary') == null ? '' : String(fromStep3('rubric_summary')),
-    zhMissing: true, enMissing: fromStep3('rubric_summary') == null,
-    enTruncated: false, zhTruncated: false, englishOnly: true
-  };
-
-  /* ── alignment reasons: 中文 is its own column and survives a bad blob ─ */
-  var alignEn = step4 && step4.reasons != null ? String(step4.reasons) : '';
-  var alignZh = joinChunks(row, TRANSLATION_MAP.alignment.zh, chunks);
-  panels.alignment = {
-    zh: alignZh, en: alignEn,
-    zhMissing: !alignZh.trim(), enMissing: !alignEn.trim(),
-    enTruncated: false, zhTruncated: false
-  };
-
   /* ── judge reasons ────────────────────────────────────────────────── */
   var jrZhRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.zh, chunks);
   var jrEnRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.en, chunks);
@@ -1191,7 +1180,6 @@ var review = { rows: {}, remarks: '' };
 var rawFlags = {};        // panelId -> bool. Session only, per spec's UI-prefs list.
 var expandedRows = {};    // rowIndex -> bool. Session only.
 var renderCache = {};     // panelId|lang|raw -> HTML. Cleared on navigation.
-var pendingCopy = null;
 
 var $ = function (sel) { return document.querySelector(sel); };
 var el = {
@@ -1209,8 +1197,6 @@ var el = {
   outCodes: $('#outCodes'), outRemarks: $('#outRemarks'),
   copyCodes: $('#copyCodes'), copyRemarks: $('#copyRemarks'), copyGeneral: $('#copyGeneral'),
   okCodes: $('#okCodes'), okRemarks: $('#okRemarks'), okGeneral: $('#okGeneral'),
-  copyWarn: $('#copyWarn'), copyWarnText: $('#copyWarnText'),
-  copyAnyway: $('#copyAnyway'), copyCancel: $('#copyCancel'),
   general: $('#generalRemarks'),
   clearCase: $('#clearCase'), clearAll: $('#clearAll'),
   other: $('#otherFields'), otherList: $('#otherFieldsList'),
@@ -1221,12 +1207,23 @@ var el = {
 
 function panelLang(id) { return ui.panelLangs[id] === 'zh' ? 'zh' : 'en'; }  // ENG on first load
 function isCollapsed(id) { return !!ui.panelCollapsed[id]; }
+/* `issues` is keyed by error code (changed 2026-08-05). A pre-2026-08-05 row
+   stores it as a single string — deliberately discarded rather than migrated,
+   per specifications.md § Persistence. The codes on that row survive. */
 function rowState(idx) {
   var r = review.rows[idx];
-  if (!r) { r = review.rows[idx] = { codes: [], issues: '' }; }
+  if (!r) { r = review.rows[idx] = { codes: [], issues: {} }; }
   if (!Array.isArray(r.codes)) r.codes = [];
-  if (typeof r.issues !== 'string') r.issues = '';
+  if (!r.issues || typeof r.issues !== 'object' || Array.isArray(r.issues)) r.issues = {};
   return r;
+}
+
+/* Text lives only under a currently-selected code. Called after every change to
+   `codes` so a deselected code's text cannot survive as invisible orphan text. */
+function pruneIssues(st) {
+  Object.keys(st.issues).forEach(function (code) {
+    if (st.codes.indexOf(code) === -1) delete st.issues[code];
+  });
 }
 
 
@@ -1751,12 +1748,18 @@ function renderRubrics(c) {
 
 function buildRubricRow(c, r, idx, critLang) {
   var st = rowState(idx);
+  var codes = sortCodes(st.codes);
+
+  /* One grid line per selected code; a rubric with none still occupies one.
+     id / criterion / weight are rendered once and span all of them. */
+  var lines = Math.max(1, codes.length);
   var row = document.createElement('div');
   row.className = 'rrow' + (r.misaligned ? ' misaligned' : '');
   row.dataset.idx = String(idx);
+  row.style.setProperty('--lines', String(lines));
   if (r.misaligned) row.title = 'The upstream alignment check listed this rubric in misaligned_indices.';
 
-  /* id + expander */
+  /* id + expander + row clear */
   var cId = document.createElement('div');
   cId.className = 'c-id';
   cId.dataset.label = 'id';
@@ -1771,6 +1774,21 @@ function buildRubricRow(c, r, idx, critLang) {
     renderRubrics(currentCase);
   });
   cId.appendChild(exp);
+
+  var clr = document.createElement('button');
+  clr.type = 'button';
+  clr.className = 'rowclear';
+  clr.textContent = '×';
+  clr.title = 'Clear every code and all text for this rubric';
+  clr.setAttribute('aria-label', 'Clear all codes and issues text for rubric R' + (idx + 1));
+  clr.addEventListener('click', function () {
+    closeCodeMenu(true);
+    review.rows[idx] = { codes: [], issues: {} };
+    saveReviewNow(currentCase.id, review);
+    renderRubrics(currentCase);
+    refreshOutput();
+  });
+  cId.appendChild(clr);
   row.appendChild(cId);
 
   /* criterion — read-only, never edited, stored, or copied out */
@@ -1803,61 +1821,106 @@ function buildRubricRow(c, r, idx, critLang) {
   cW.appendChild(wb);
   row.appendChild(cW);
 
-  /* error code — multi-select */
-  var cCode = document.createElement('div');
-  cCode.className = 'c-code';
-  cCode.dataset.label = 'error code';
+  /* One (error code, issues) pair per selected code. Auto-placement fills the
+     two remaining columns line by line, skipping the cells the three spanning
+     cells above already occupy. A rubric with no codes keeps one empty line. */
+  if (!codes.length) {
+    var only = buildCodeCell(idx, null);
+    only.classList.add('line-first');
+    row.appendChild(only);
+    var blank = document.createElement('div');
+    blank.className = 'c-issues line-first';
+    blank.dataset.label = 'issues to fix';
+    row.appendChild(blank);
+  } else {
+    codes.forEach(function (code, n) {
+      var cc = buildCodeCell(idx, code);
+      var ci = buildIssuesCell(idx, code, st);
+      if (n === 0) { cc.classList.add('line-first'); ci.classList.add('line-first'); }
+      row.appendChild(cc);
+      row.appendChild(ci);
+    });
+  }
+
+  return row;
+}
+
+/* One line's code cell. The chip opens the same whole-rubric checklist — the
+   lines are a view of the selected set, never a per-line picker. */
+function buildCodeCell(idx, code) {
+  var cell = document.createElement('div');
+  cell.className = 'c-code';
+  cell.dataset.label = 'error code';
+
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'codebtn';
   btn.setAttribute('aria-haspopup', 'true');
   btn.setAttribute('aria-expanded', 'false');
-  paintCodeButton(btn, st.codes, idx);
+  if (code === null) {
+    var p = document.createElement('span');
+    p.className = 'placeholder';
+    p.textContent = 'no code — click to select';
+    btn.appendChild(p);
+    btn.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1) + ': none selected');
+  } else {
+    btn.textContent = code;
+    btn.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1) + '; this line: ' + code);
+  }
   btn.addEventListener('click', function (ev) {
     ev.stopPropagation();
     openCodeMenu(btn, idx);
   });
-  cCode.appendChild(btn);
-  row.appendChild(cCode);
+  cell.appendChild(btn);
 
-  /* issues to fix */
-  var cIss = document.createElement('div');
-  cIss.className = 'c-issues';
-  cIss.dataset.label = 'issues to fix';
+  if (code !== null) {
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'linedel';
+    del.textContent = '×';
+    del.title = 'Remove this code and discard its text';
+    del.setAttribute('aria-label', 'Remove ' + code + ' from rubric R' + (idx + 1) +
+                                   ' and discard its text');
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      closeCodeMenu(true);
+      var s = rowState(idx);
+      var at = s.codes.indexOf(code);
+      if (at !== -1) s.codes.splice(at, 1);
+      pruneIssues(s);
+      saveReviewNow(currentCase.id, review);
+      renderRubrics(currentCase);
+      refreshOutput();
+    });
+    cell.appendChild(del);
+  }
+  return cell;
+}
+
+function buildIssuesCell(idx, code, st) {
+  var cell = document.createElement('div');
+  cell.className = 'c-issues';
+  cell.dataset.label = 'issues to fix';
+
   var ta = document.createElement('textarea');
-  ta.value = st.issues;
-  ta.setAttribute('aria-label', 'Issues to fix for rubric R' + (idx + 1));
-  ta.placeholder = 'What is wrong with this criterion…';
+  ta.value = typeof st.issues[code] === 'string' ? st.issues[code] : '';
+  ta.setAttribute('aria-label', 'Issues to fix for rubric R' + (idx + 1) + ', ' + code);
+  ta.placeholder = 'Why this code applies here…';
   ta.addEventListener('input', function () {
-    rowState(idx).issues = ta.value;
+    rowState(idx).issues[code] = ta.value;
     autoGrow(ta);
     saveReview(currentCase.id, review);
     refreshOutput();
   });
-  cIss.appendChild(ta);
-
-  var clr = document.createElement('button');
-  clr.type = 'button';
-  clr.className = 'rowclear';
-  clr.textContent = '×';
-  clr.title = 'Clear this row';
-  clr.setAttribute('aria-label', 'Clear codes and issues text for rubric R' + (idx + 1));
-  clr.addEventListener('click', function () {
-    review.rows[idx] = { codes: [], issues: '' };
-    saveReviewNow(currentCase.id, review);
-    renderRubrics(currentCase);
-    refreshOutput();
-  });
-  cIss.appendChild(clr);
-  row.appendChild(cIss);
+  cell.appendChild(ta);
 
   requestAnimationFrame(function () { autoGrow(ta); });
-  return row;
+  return cell;
 }
 
 function autoGrow(ta) {
   ta.style.height = 'auto';
-  ta.style.height = Math.max(60, ta.scrollHeight) + 'px';
+  ta.style.height = Math.max(40, ta.scrollHeight) + 'px';   // matches .c-issues min-height
 }
 
 function buildRubricExpander(r) {
@@ -1949,35 +2012,28 @@ function sortCodes(codes) {
   });
 }
 
-function paintCodeButton(btn, codes, idx) {
-  btn.textContent = '';
-  if (!codes.length) {
-    var p = document.createElement('span');
-    p.className = 'placeholder';
-    p.textContent = 'no code — click to select';
-    btn.appendChild(p);
-  } else {
-    sortCodes(codes).forEach(function (code) {
-      var s = document.createElement('span');
-      s.className = 'codechip';
-      s.textContent = '• ' + code;
-      btn.appendChild(s);
-    });
-  }
-  btn.setAttribute('aria-label', 'Error codes for rubric R' + (idx + 1) +
-    (codes.length ? ': ' + codes.join('; ') : ': none selected'));
-}
-
-function closeCodeMenu() {
+/* Checking a code adds a grid line, which means rebuilding the row — and the
+   row owns the button the menu is anchored to. So edits are recorded while the
+   menu is open and the table is rebuilt once, on close. `skipRender` is for
+   callers that are about to render anyway. */
+function closeCodeMenu(skipRender) {
   if (!openMenu) return;
   if (openMenu.anchor) openMenu.anchor.setAttribute('aria-expanded', 'false');
+  var dirty = openMenu.dirty;
   openMenu.node.remove();
   openMenu = null;
+  if (dirty && !skipRender && currentCase) renderRubrics(currentCase);
 }
 
 function openCodeMenu(anchor, idx) {
   if (openMenu && openMenu.idx === idx) { closeCodeMenu(); return; }
   closeCodeMenu();
+  /* Closing another row's menu may have rebuilt the table, detaching `anchor` —
+     positioning off a detached node lands the menu at 0,0. Re-find it. */
+  if (!anchor.isConnected) {
+    anchor = el.rubricsWrap.querySelector('.rrow[data-idx="' + idx + '"] .codebtn');
+    if (!anchor) return;
+  }
 
   var st = rowState(idx);
   var menu = document.createElement('div');
@@ -2014,7 +2070,8 @@ function openCodeMenu(anchor, idx) {
       if (cb.checked && at === -1) s.codes.push(entry.code);
       else if (!cb.checked && at !== -1) s.codes.splice(at, 1);
       s.codes = sortCodes(s.codes);
-      paintCodeButton(anchor, s.codes, idx);
+      pruneIssues(s);                 // unchecking discards that code's text
+      if (openMenu) openMenu.dirty = true;
       saveReview(currentCase.id, review);
       refreshOutput();
     });
@@ -2038,8 +2095,10 @@ function openCodeMenu(anchor, idx) {
   clear.className = 'btn';
   clear.textContent = 'Clear codes';
   clear.addEventListener('click', function () {
-    rowState(idx).codes = [];
-    paintCodeButton(anchor, [], idx);
+    var s = rowState(idx);
+    s.codes = [];
+    pruneIssues(s);
+    if (openMenu) openMenu.dirty = true;
     Array.prototype.forEach.call(menu.querySelectorAll('input'), function (i) { i.checked = false; });
     saveReview(currentCase.id, review);
     refreshOutput();
@@ -2048,7 +2107,12 @@ function openCodeMenu(anchor, idx) {
   done.type = 'button';
   done.className = 'btn btn-primary';
   done.textContent = 'Done';
-  done.addEventListener('click', function () { closeCodeMenu(); anchor.focus(); });
+  done.addEventListener('click', function () {
+    closeCodeMenu();
+    // The row may have been rebuilt, taking `anchor` with it — re-find by index.
+    var back = el.rubricsWrap.querySelector('.rrow[data-idx="' + idx + '"] .codebtn');
+    if (back) back.focus();
+  });
   foot.appendChild(clear);
   foot.appendChild(done);
   menu.appendChild(foot);
@@ -2064,7 +2128,7 @@ function openCodeMenu(anchor, idx) {
   menu.style.left = left + 'px';
 
   anchor.setAttribute('aria-expanded', 'true');
-  openMenu = { node: menu, anchor: anchor, idx: idx };
+  openMenu = { node: menu, anchor: anchor, idx: idx, dirty: false };
   menu.addEventListener('click', function (e) { e.stopPropagation(); });
   var first = menu.querySelector('input:not(:disabled)');
   if (first) first.focus();
@@ -2073,37 +2137,45 @@ function openCodeMenu(anchor, idx) {
 
 /* ══════════════════════════════════════════════════════════════════════════
    §8 OUTPUT
-   One ordered pass over (rowIndex, code) pairs, so entry N of the codes output
-   IS block N of the remarks output by construction — not by two functions
-   agreeing. That 1:1 alignment is the auditable property; splitting these into
-   independent generators is the way to break it.
+   One ordered pass over (rowIndex, code) pairs feeds both cells. Each pair now
+   carries its OWN text, which is the point of the per-code boxes.
+
+   The two cells are deliberately NOT positionally aligned (changed 2026-08-05):
+   the codes cell is a deduplicated set in canonical order, the remarks cell a
+   per-pair list in table order, so a code used on two rubrics appears once in
+   one and twice in the other. The `R<n>` prefix is what locates a remarks block
+   now that its position no longer does.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function collectPairs(rubricCount) {
-  var pairs = [], orphans = [];
+  var pairs = [];
   for (var i = 0; i < rubricCount; i++) {
     var r = review.rows[i];
     var codes = (r && Array.isArray(r.codes)) ? r.codes : [];
-    var text = (r && typeof r.issues === 'string') ? r.issues : '';
-    if (!codes.length) {
-      if (text.trim()) orphans.push('R' + (i + 1));   // text but no code → not emitted
-      continue;
-    }
+    var byCode = (r && r.issues && typeof r.issues === 'object') ? r.issues : {};
     sortCodes(codes).forEach(function (code) {
+      var text = typeof byCode[code] === 'string' ? byCode[code] : '';
       pairs.push({ row: i, code: code, issues: text });
     });
   }
-  return { pairs: pairs, orphans: orphans };
+  return pairs;
 }
 
-function buildErrorCodes(pairs) {
-  // Duplicates kept — the same error can affect several criteria.
-  return pairs.map(function (p) { return p.code; }).join('\n');
+/* Distinct codes only, canonical order, comma-joined with no spaces:
+   `P0 Non-Binary…,P1 Unreasonable Rubric Weightage` */
+function distinctCodes(pairs) {
+  var seen = {}, out = [];
+  pairs.forEach(function (p) {
+    if (seen[p.code]) return;
+    seen[p.code] = true;
+    out.push(p.code);
+  });
+  return sortCodes(out);
 }
 
 function buildRemarks(pairs) {
-  // Issues text repeated for each code of that row. No header line, exactly one
-  // blank line between blocks, no trailing whitespace.
+  // One block per (rubric, code), each with that code's own text. No header
+  // line, exactly one blank line between blocks, no trailing whitespace.
   return pairs.map(function (p) {
     var head = 'R' + (p.row + 1) + ' ' + p.code + ':';
     var body = p.issues.replace(/\s+$/, '');
@@ -2113,18 +2185,20 @@ function buildRemarks(pairs) {
 
 function currentOutput() {
   var n = currentCase ? currentCase.rubrics.length : 0;
-  var c = collectPairs(n);
+  var pairs = collectPairs(n);
+  var codes = distinctCodes(pairs);
   return {
-    pairs: c.pairs,
-    orphans: c.orphans,
-    codes: buildErrorCodes(c.pairs),
-    remarks: buildRemarks(c.pairs)
+    pairs: pairs,
+    codeList: codes,
+    codes: codes.join(','),        // clipboard form
+    codesDisplay: codes.join('\n'),// on-screen preview — same set, one per line
+    remarks: buildRemarks(pairs)
   };
 }
 
 function refreshOutput() {
   var out = currentOutput();
-  el.outCodes.textContent = out.codes;
+  el.outCodes.textContent = out.codesDisplay;   // preview lists; clipboard joins
   el.outRemarks.textContent = out.remarks;
 }
 
@@ -2162,27 +2236,25 @@ function runCopy(kind) {
     flash(kind === 'codes' ? el.okCodes : el.okRemarks, 'Nothing to copy — no error codes selected.');
     return;
   }
-  if (out.orphans.length) {
-    // Non-blocking: name the rows that will be silently lost, then let it through.
-    pendingCopy = { kind: kind, out: out };
-    el.copyWarnText.textContent = '⚠ ' + out.orphans.join(', ') +
-      (out.orphans.length === 1 ? ' has' : ' have') +
-      ' issues text but no error code — not included.';
-    el.copyWarn.hidden = false;
-    el.copyAnyway.focus();
-    return;
-  }
   doCopy(kind, out);
 }
 
+/* The two counts differ whenever a code repeats across rubrics — expected, and
+   the cheapest available check that the dedup did what it should. */
 function doCopy(kind, out) {
   var criteria = {};
   out.pairs.forEach(function (p) { criteria[p.row] = true; });
   var n = Object.keys(criteria).length;
-  var msg = 'Copied ' + out.pairs.length + ' block' + (out.pairs.length === 1 ? '' : 's') +
-            ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') + '.';
-  if (kind === 'codes') copyText(out.codes, el.okCodes, msg);
-  else copyText(out.remarks, el.okRemarks, msg);
+  var from = ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') + '.';
+  if (kind === 'codes') {
+    var k = out.codeList.length;
+    copyText(out.codes, el.okCodes,
+             'Copied ' + k + ' error code' + (k === 1 ? '' : 's') + from);
+  } else {
+    var b = out.pairs.length;
+    copyText(out.remarks, el.okRemarks,
+             'Copied ' + b + ' block' + (b === 1 ? '' : 's') + from);
+  }
 }
 
 
@@ -2258,14 +2330,12 @@ function moveCombo(delta) {
 function goTo(i) {
   if (i < 0 || i >= cases.length) return;
   if (currentCase) saveReviewNow(currentCase.id, review);
-  closeCodeMenu();
+  closeCodeMenu(true);          // renderCase() below rebuilds the table anyway
   currentIndex = i;
   currentCase = cases[i];
   review = loadReview(currentCase.id);
   renderCache = {};           // per-case scratch buffer, not a memo table
   expandedRows = {};
-  el.copyWarn.hidden = true;
-  pendingCopy = null;
   el.search.value = currentCase.id;
   renderCase();
   el.scroll.scrollTop = 0;
@@ -2539,16 +2609,6 @@ function init() {
   el.copyGeneral.addEventListener('click', function () {
     copyText(el.general.value, el.okGeneral, 'Copied general remarks.');
   });
-  el.copyAnyway.addEventListener('click', function () {
-    if (pendingCopy) doCopy(pendingCopy.kind, pendingCopy.out);
-    el.copyWarn.hidden = true;
-    pendingCopy = null;
-  });
-  el.copyCancel.addEventListener('click', function () {
-    el.copyWarn.hidden = true;
-    pendingCopy = null;
-  });
-
   el.clearCase.addEventListener('click', function () {
     if (!currentCase) return;
     confirmDialog('Clear this case?',
@@ -2599,8 +2659,10 @@ function init() {
 
   document.addEventListener('click', function () { closeCodeMenu(); });
   // The menu is viewport-anchored, so it cannot follow its row.
-  el.scroll.addEventListener('scroll', closeCodeMenu);
-  window.addEventListener('resize', closeCodeMenu);
+  // Wrapped, not passed directly — the Event object would arrive as `skipRender`
+  // and swallow the pending rebuild.
+  el.scroll.addEventListener('scroll', function () { closeCodeMenu(); });
+  window.addEventListener('resize', function () { closeCodeMenu(); });
 
   /* Shortcuts. Guarded so they never fire from inside a textarea (except Esc).
      No single-letter shortcuts. */
@@ -2612,7 +2674,6 @@ function init() {
       if (openMenu) { closeCodeMenu(); return; }
       if (!el.list.hidden) { closeCombo(); return; }
       if (el.dialog.open) { el.dialog.close(); return; }
-      if (!el.copyWarn.hidden) { el.copyWarn.hidden = true; pendingCopy = null; }
       return;
     }
     if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'k' || ev.key === 'K')) {
