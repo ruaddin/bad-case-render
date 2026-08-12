@@ -1,0 +1,707 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Bad Case Rubrics Review Viewer — components
+   Archetype: review queue (.claude/skills/uiux/archetypes.md §5)
+
+   Every class name here is also written by the JS in index.html (it builds
+   most of the DOM with `className = '…'`), so names are fixed. Only values
+   changed in the house-system retrofit.
+
+   Colour rules followed throughout:
+     blue  = neutral data, informational, interactive, focus
+     green = success only
+     red   = error and destructive only
+   The reference defines no amber, so the former --warn-* pair is gone: the
+   load report and language-fallback badges are informational (blue), and
+   parse failures and misaligned rows are errors (red).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* runtime-adjustable layout — JS writes --prompt-h on the resize grip */
+  --prompt-h: 35vh;
+
+  /* z-index scale, uiux reference §3 */
+  --z-sticky: 10;   /* top bar, rail            */
+  --z-drop:   20;   /* full-window drop overlay */
+  --z-pop:    40;   /* combobox list, code menu */
+}
+
+/* ── base ─────────────────────────────────────────────────────────────── */
+
+* { box-sizing: border-box; }
+
+/* Several elements below set `display`, which beats the UA `[hidden]` rule and
+   would leave them painted while hidden. Everything here toggles via `hidden`. */
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-1);
+  background: var(--canvas);
+  overflow: hidden;   /* #scrollArea is the only scroll region */
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+::selection { background: var(--blue-tint); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
+
+code, pre, .mono { font-family: var(--font-mono); }
+
+/* "read-only / generated" annotations, used in several unrelated headers. */
+.ro-note { font-size: 12px; color: var(--text-3); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ── shell ────────────────────────────────────────────────────────────────
+   Rail beside a column that owns the full viewport height. The page itself
+   never scrolls; <main id="scrollArea"> is the single scroll owner. */
+
+.app { display: flex; min-height: 100dvh; }
+
+#app {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  height: 100dvh; overflow: hidden;
+}
+
+/* ── rail ─────────────────────────────────────────────────────────────── */
+
+.rail {
+  width: 72px; flex: none;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: space-between;
+  padding: 16px 0;
+  position: sticky; top: 0; height: 100dvh; z-index: var(--z-sticky);
+}
+.rail-group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+/* Identity tile. This tool has no sibling tools to link to, so the rail
+   carries a mark rather than navigation (archetypes.md, "The shell"). */
+.rail-mark {
+  width: 44px; height: 44px; border-radius: var(--r-lg);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--blue-tint); color: var(--blue);
+}
+
+.rail-btn {
+  width: 40px; height: 40px; border-radius: var(--r-lg);
+  border: none; background: transparent; color: var(--text-3);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+.rail-btn:hover { background: var(--surface); color: var(--text-2); }
+.rail-sep { width: 28px; height: 1px; background: var(--border); margin: 4px 0; }
+
+/* The toggle shows the theme it will switch *to*, so light shows a moon and
+   dark shows a sun. Done in CSS off the same [data-theme] attribute the JS
+   already sets — no extra JS, and it cannot drift out of sync. */
+.rail-btn svg { display: block; }
+.rail-btn .icon-sun { display: none; }
+[data-theme="dark"] .rail-btn .icon-sun  { display: block; }
+[data-theme="dark"] .rail-btn .icon-moon { display: none; }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+
+.btn {
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  cursor: pointer;
+  min-height: 32px;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
+}
+.btn:hover { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn:disabled {
+  cursor: not-allowed;
+  background: var(--surface-2); color: var(--text-4); border-color: var(--border);
+}
+.btn-primary { background: var(--blue); color: var(--on-accent); border-color: var(--blue); }
+.btn-primary:hover { background: var(--blue); color: var(--on-accent); border-color: var(--blue); filter: brightness(1.08); }
+.btn-danger { background: var(--red); color: var(--on-accent); border-color: var(--red); }
+.btn-danger:hover { background: var(--red); color: var(--on-accent); border-color: var(--red); filter: brightness(1.08); }
+.btn-icon { padding: 4px 8px; min-width: 32px; justify-content: center; }
+
+/* ── chips ────────────────────────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill); padding: 4px 12px;
+  font-size: 12px; font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.chip b { font-weight: 600; color: var(--text-3); }
+
+/* ── segmented toggles (language / raw) ───────────────────────────────── */
+
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
+.seg button {
+  background: var(--surface); border: 0; padding: 4px 12px;
+  font-size: 12px; font-weight: 500; cursor: pointer; min-height: 28px;
+  color: var(--text-2);
+  transition: background 150ms ease-out;
+}
+.seg button:hover { background: var(--surface-2); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--blue); color: var(--on-accent); }
+.seg button:disabled { color: var(--text-4); cursor: not-allowed; background: var(--surface-2); }
+
+/* ── top bar ──────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: 0 0 auto;
+  z-index: var(--z-sticky);
+}
+.topbar .nav-group { display: flex; align-items: center; gap: 8px; }
+.topbar .tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+.combobox { position: relative; min-width: 260px; }
+.combobox input {
+  width: 100%; padding: 8px 12px;
+  font-family: var(--font-mono); font-size: 13px;
+  color: var(--text-1);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.combobox input:disabled { background: var(--surface-2); color: var(--text-4); }
+.combobox .count {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 12px; font-family: var(--font-mono); color: var(--text-3); pointer-events: none;
+  background: var(--surface); padding-left: 8px;
+}
+.combobox ul {
+  position: absolute; z-index: var(--z-pop); top: calc(100% + 4px); left: 0; right: 0;
+  max-height: 340px; overflow-y: auto; margin: 0; padding: 4px;
+  list-style: none; background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+.combobox li {
+  padding: 8px; border-radius: var(--r-sm); cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px;
+  display: flex; justify-content: space-between; gap: 12px;
+}
+.combobox li[aria-selected="true"], .combobox li.active { background: var(--blue); color: var(--on-accent); }
+.combobox li .rowno { color: var(--text-3); font-size: 12px; }
+.combobox li[aria-selected="true"] .rowno, .combobox li.active .rowno { color: var(--on-accent); }
+
+.filebtn {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 4px 12px; min-height: 32px;
+  background: var(--surface); cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--text-2);
+}
+.filebtn:hover { border-color: var(--border-strong); color: var(--text-1); }
+/* The native file control renders as an unstyleable "Choose File | none" widget,
+   which the house system has no shape for. Hide it visually and let the label be
+   the button; the input stays in the tab order, so :focus-within carries the ring.
+   The chosen filename is already reported by #fileMeta in the same bar. */
+.filebtn input {
+  position: absolute; width: 1px; height: 1px; opacity: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.filebtn:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.filename { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+
+/* ── load report ──────────────────────────────────────────────────────────
+   Partial success on import: N cases loaded, M of them with unparseable cells.
+   It is only rendered when something failed, so it is red and carries an alert
+   glyph — colour is never the sole signal. */
+
+.report {
+  flex: 0 0 auto;
+  background: var(--red-tint);
+  border-bottom: 1px solid var(--red);
+  padding: 12px 24px;
+  font-size: 13px;
+  max-height: 25vh; overflow-y: auto;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.report .glyph { flex: none; color: var(--red); margin-top: 4px; }
+.report .body { flex: 1; min-width: 0; }
+.report h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: var(--text-1); }
+.report ul { margin: 0; padding-left: 20px; }
+.report li { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; color: var(--text-2); }
+
+/* ── header strip ─────────────────────────────────────────────────────── */
+
+.headerstrip {
+  flex: 0 0 auto;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.headerstrip .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.headerstrip .caseid { font-family: var(--font-mono); font-weight: 600; font-size: 17px; }
+
+/* ── panels ───────────────────────────────────────────────────────────── */
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 12px;
+}
+.panel > header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--r-2xl) - 1px) calc(var(--r-2xl) - 1px) 0 0;
+}
+.panel.collapsed > header { border-bottom: 0; border-radius: calc(var(--r-2xl) - 1px); }
+.panel > header .title {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  color: var(--text-1);
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+}
+.panel > header .spacer { margin-left: auto; }
+.panel .body { padding: 12px 16px; overflow-x: auto; }
+.panel.collapsed .body { display: none; }
+
+/* Marks a panel showing a language fallback — informational, so blue. */
+.badge-fallback {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-pill);
+  background: var(--blue-tint); color: var(--blue);
+}
+.inline-warn {
+  margin: 0 0 12px; padding: 8px 12px;
+  background: var(--blue-tint); border: 1px solid var(--blue); border-radius: var(--r-sm);
+  color: var(--text-1); font-size: 13px;
+}
+.inline-error {
+  margin: 0 0 12px; padding: 8px 12px;
+  background: var(--red-tint);
+  border: 1px solid var(--red); border-radius: var(--r-sm);
+  color: var(--red); font-size: 13px; font-weight: 600;
+}
+
+/* ── pinned prompt ────────────────────────────────────────────────────── */
+
+.pinned {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--canvas);
+  position: relative;
+}
+.pinned .panel { margin: 12px 24px; }
+.pinned .body { max-height: var(--prompt-h); overflow-y: auto; }
+.pinned.collapsed-outer .body { display: none; }
+.grip {
+  height: 8px; cursor: ns-resize; background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.grip::after { content: ''; width: 36px; height: 4px; border-radius: 3px; background: var(--border-strong); }
+.grip:hover::after, .grip:focus-visible::after { background: var(--blue); }
+
+/* ── scroll area ──────────────────────────────────────────────────────── */
+
+main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
+
+/* ── markdown body ────────────────────────────────────────────────────── */
+
+.md { word-break: break-word; font-size: 14px; line-height: 1.65; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md pre {
+  background: var(--surface-2); color: var(--text-1);
+  padding: 12px; border-radius: var(--r-sm); overflow-x: auto;
+  border: 1px solid var(--border);
+}
+.md code { font-family: var(--font-mono); font-size: .9em; }
+.md :not(pre) > code {
+  background: var(--surface-2); color: var(--text-1);
+  padding: 0 4px; border-radius: 4px;
+}
+.md table { border-collapse: collapse; font-size: 12px; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 8px; }
+.md th { background: var(--surface-2); color: var(--text-2); font-weight: 600; text-align: left; }
+.md blockquote {
+  margin: 8px 0; padding-left: 12px;
+  border-left: 3px solid var(--border-strong); color: var(--text-2);
+}
+.md img { max-width: 100%; }
+
+.raw {
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; margin: 0;
+  background: var(--surface-2); color: var(--text-1);
+  border: 1px solid var(--border);
+  padding: 12px; border-radius: var(--r-sm);
+}
+
+/* conversation turns */
+.turn { border-left: 3px solid var(--border); padding-left: 12px; margin-bottom: 16px; }
+.turn-role {
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+/* judge reasons */
+.jr { list-style: none; margin: 0; padding: 0; }
+.jr li { padding: 8px 0; border-top: 1px solid var(--border); }
+.jr li:first-child { border-top: 0; padding-top: 0; }
+.jr .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+
+/* ── agent panes ──────────────────────────────────────────────────────── */
+
+.agents { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.agents .panel { margin: 0; }
+.agent-field { margin-bottom: 12px; }
+.agent-field:last-child { margin-bottom: 0; }
+.agent-field .label {
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
+}
+.agent-field .value {
+  white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+  user-select: text;
+}
+/* Marks the text unique to this pane — data emphasis, so blue. */
+.agent-field .value .uniq {
+  background: var(--blue-tint);
+  border-bottom: 2px solid var(--blue);
+  border-radius: 4px; padding: 0 4px;
+}
+.agent-empty { color: var(--text-3); font-style: italic; }
+
+/* ── rubrics table ────────────────────────────────────────────────────── */
+
+.rtable {
+  --cols: 6% 40% 10% 22% 22%;
+  border: 1px solid var(--border); border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 12px; background: var(--surface);
+  font-size: 13px;
+}
+/* Criterion-language switch above the table. */
+.langbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.langbar-label { font-size: 13px; font-weight: 500; color: var(--text-2); }
+
+.rhead, .rrow { display: grid; grid-template-columns: var(--cols); }
+.rhead {
+  position: relative;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--r-2xl) - 1px) calc(var(--r-2xl) - 1px) 0 0;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
+}
+.rhead > span { padding: 8px 12px; }
+.rrow { border-top: 1px solid var(--border); }
+.rhead + .rrow, .rbody > .rrow:first-child { border-top: 0; }
+.rrow > div { padding: 8px 12px; min-width: 0; }
+/* Listed in the upstream alignment check's misaligned_indices. Paired with the
+   .mis-flag label below, so the tint is reinforcement rather than the signal. */
+.rrow.misaligned { background: var(--red-tint); }
+.mis-flag {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--red); white-space: nowrap;
+}
+
+/* One grid line per selected code; id / criterion / weight span all of them.
+   `--lines` is set per row in buildRubricRow. Auto-placement then fills the
+   code and issues columns line by line, skipping the spanned cells. */
+.rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: span var(--lines, 1); }
+.rrow > .c-code, .rrow > .c-issues { border-top: 1px dotted var(--border); }
+.rrow > .line-first { border-top: 0; }
+
+.c-id { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.c-id .expander {
+  background: none; border: 0; cursor: pointer; padding: 4px;
+  font-family: var(--font-mono); font-weight: 600; font-size: 13px;
+  color: var(--text-1); border-radius: 4px;
+}
+.c-id .expander:hover { background: var(--surface-2); }
+.c-crit { user-select: text; }
+.c-weight .badge {
+  display: inline-block; font-family: var(--font-mono); font-size: 12px;
+  background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 0 8px; white-space: nowrap;
+}
+.c-issues textarea {
+  /* Short per-code notes now, not one paragraph per criterion — a low floor
+     keeps a three-code rubric from opening 200px tall. Auto-grow does the rest.
+     min-height must stay 40px: autoGrow() clamps to the same number. */
+  width: 100%; min-height: 40px; resize: vertical; overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1);
+  font-size: 13px; line-height: 1.5;
+}
+/* --text-2, not --text-3: these sit inside .rrow.misaligned, whose --red-tint
+   background drops --text-3 to 4.1:1. --text-2 clears 4.5:1 on every row tint. */
+.rowclear {
+  background: none; border: 0; cursor: pointer; padding: 4px 8px;
+  color: var(--text-2); font-size: 15px; line-height: 1; border-radius: 4px;
+}
+.rowclear:hover { color: var(--red); background: var(--red-tint); }
+
+.c-code { position: relative; display: flex; gap: 4px; align-items: flex-start; }
+.codebtn {
+  flex: 1; text-align: left; min-height: 32px;
+  background: var(--surface); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 8px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45;
+  word-break: break-word;
+  transition: border-color 150ms ease-out;
+}
+.codebtn:hover { border-color: var(--border-strong); }
+.codebtn .placeholder { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
+.linedel {
+  flex: none; background: none; border: 0; cursor: pointer; padding: 4px;
+  color: var(--text-2); font-size: 15px; line-height: 1; border-radius: 4px;   /* see .rowclear */
+}
+.linedel:hover { color: var(--red); background: var(--red-tint); }
+
+/* Column resize handles, absolutely placed over the header by JS. */
+.resizers { position: absolute; inset: 0; pointer-events: none; }
+.resizer {
+  position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px;
+  cursor: col-resize; pointer-events: auto; background: transparent;
+  border: 0; padding: 0;
+}
+.resizer::after {
+  content: ''; position: absolute; left: 4px; top: 4px; bottom: 4px;
+  width: 1px; background: var(--border-strong);
+}
+.resizer:hover::after, .resizer:focus-visible::after { background: var(--blue); width: 2px; }
+
+.rexp {
+  border-top: 1px dashed var(--border);
+  background: var(--surface-2);
+  padding: 12px 16px; font-size: 13px;
+}
+.rexp dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.rexp dt {
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--text-3);
+}
+.rexp dd { margin: 0; word-break: break-word; color: var(--text-2); }
+
+/* ── error-code popover ───────────────────────────────────────────────────
+   `fixed`, not `absolute`: the app is a non-scrolling 100dvh flex column, so
+   an absolutely-positioned menu would extend the document and focusing its
+   first checkbox would scroll the app out of view. */
+
+.codemenu {
+  position: fixed; z-index: var(--z-pop);
+  width: min(560px, 94vw); max-height: 62vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-card);
+  padding: 8px;
+}
+.codemenu .grp {
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--text-3);
+  padding: 8px 8px 4px; border-top: 1px solid var(--border); margin-top: 4px;
+}
+.codemenu .grp:first-child { border-top: 0; margin-top: 0; }
+.codemenu label {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px;
+}
+.codemenu label:hover { background: var(--surface-2); }
+.codemenu input { margin-top: 4px; flex: 0 0 auto; accent-color: var(--blue); }
+.codemenu footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 8px 4px 4px; border-top: 1px solid var(--border); margin-top: 8px;
+}
+
+/* ── final box ────────────────────────────────────────────────────────── */
+
+.final {
+  border: 1px solid var(--border-strong); border-radius: var(--r-2xl);
+  background: var(--surface); box-shadow: var(--shadow-card);
+  padding: 20px; margin-bottom: 12px;
+}
+.final h2 { margin: 0 0 16px; font-size: 20px; font-weight: 600; }
+.outfield { margin-bottom: 16px; }
+.outfield .row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.outfield label { font-weight: 600; font-size: 13px; color: var(--text-2); }
+.outfield .spacer { margin-left: auto; }
+.outbox {
+  margin: 0; min-height: 76px; max-height: 340px; overflow: auto;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text-1);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.outbox:empty::before { content: 'No error codes selected yet.'; color: var(--text-3); font-style: italic; }
+
+#generalRemarks {
+  width: 100%; min-height: 76px; resize: vertical;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1); font-size: 13px; line-height: 1.55;
+}
+
+/* Case-level code — belongs to the case, not to any rubric row, so it lives
+   above the generated cells rather than in the rubrics table. */
+.caselevel {
+  border: 1px solid var(--border); border-radius: var(--r-xl); padding: 12px;
+  margin-bottom: 16px; background: var(--surface-2);
+}
+.caselevel .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.caselevel .cl-check {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.caselevel .cl-check input { accent-color: var(--blue); }
+
+#langReqNote {
+  width: 100%; min-height: 60px; resize: vertical; margin-top: 8px;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1); font-size: 13px; line-height: 1.55;
+}
+
+/* Whole-rubrics codes — the same fourteen codes, judged against the rubric set
+   rather than a criterion. Same picker, so the same chip/line shape as a row. */
+.setcodes { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
+.setcodes .cl-title { font-weight: 600; font-size: 13px; }
+#setCodeBtn { display: block; width: 100%; margin-top: 8px; }
+.setline { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.setline .c-code { flex: 0 0 34%; }
+.setline .c-issues { flex: 1; }
+.setline textarea {
+  width: 100%; min-height: 40px; resize: vertical;
+  padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-1); font-size: 13px; line-height: 1.5;
+}
+
+/* Copy confirmation. The same node reports success and failure, so it carries
+   a glyph as well as a colour — green ✓ or red ⚠, never colour alone. */
+.copy-ok {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 600; color: var(--green);
+}
+.copy-ok::before { content: '✓'; font-size: 15px; line-height: 1; }
+.copy-ok.is-err { color: var(--red); }
+.copy-ok.is-err::before { content: '⚠'; }
+.copy-ok:empty { display: none; }
+
+.resets {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  border-top: 1px solid var(--border); padding-top: 12px;
+}
+
+details.other {
+  border: 1px solid var(--border); border-radius: var(--r-xl);
+  background: var(--surface);
+  padding: 12px 16px; margin-bottom: 24px;
+}
+details.other summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-2); }
+details.other dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0 4px; }
+details.other dt { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+details.other dd { margin: 0; word-break: break-word; font-size: 13px; }
+
+.dangerzone { display: flex; justify-content: flex-end; padding: 8px 0 40px; }
+
+/* ── empty state ──────────────────────────────────────────────────────── */
+
+.empty { max-width: 640px; margin: 8vh auto; }
+.empty .eyebrow {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-3);
+  margin: 0 0 8px;
+}
+.empty h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 12px; }
+.empty p { color: var(--text-2); font-size: 14px; line-height: 1.6; margin: 0; }
+.dropzone {
+  border: 1.5px dashed var(--border-strong); border-radius: var(--r-lg);
+  padding: 32px 16px; margin-top: 24px; text-align: center;
+  background: var(--surface);
+  color: var(--text-3); font-size: 13px;
+}
+.dropzone p { margin: 0; color: var(--text-2); }
+.dropzone strong { color: var(--text-1); font-weight: 600; }
+.dropzone-hint { display: block; margin-top: 8px; font-size: 11.5px; color: var(--text-3); }
+
+#dropOverlay {
+  position: fixed; inset: 0; z-index: var(--z-drop);
+  background: color-mix(in oklch, var(--blue) 18%, transparent);
+  border: 4px dashed var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 600; color: var(--text-1);
+  pointer-events: none;
+}
+
+/* ── dialog ───────────────────────────────────────────────────────────── */
+
+dialog {
+  border: 1px solid var(--border); border-radius: var(--r-xl);
+  background: var(--surface); color: var(--text-1);
+  box-shadow: var(--shadow-card);
+  padding: 20px; max-width: 520px;
+}
+dialog::backdrop { background: var(--overlay); }
+dialog h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+dialog p { margin: 0 0 16px; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Help sheet — keyboard reference, opened from the rail. */
+#helpDialog dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0 0 16px; }
+#helpDialog dt {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 4px 8px; white-space: nowrap;
+}
+#helpDialog dd { margin: 0; font-size: 13px; color: var(--text-2); align-self: center; }
+
+/* ── responsive: stack table into cards, agents vertically ────────────── */
+
+@media (max-width: 1000px) {
+  .agents { grid-template-columns: 1fr; }
+  .rhead { display: none; }
+  .rrow { grid-template-columns: 1fr; gap: 4px; padding: 8px 0 12px; }
+  .rrow > div { padding: 4px 12px; }
+  .rrow > div::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
+    margin-bottom: 4px;
+  }
+  .c-id::before { display: none; }
+  /* Single column: drop the spans and let the pairs stack in DOM order —
+     id, criterion, weight, then each code directly above its own box. */
+  .rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: auto; }
+  .rrow > .c-code, .rrow > .c-issues { border-top: 0; }
+  .rrow > .c-code { padding-top: 8px; }
+  .c-id { flex-direction: row; align-items: center; gap: 8px; }
+  /* Same stacking rule for the whole-rubrics lines: code above its own box. */
+  .setline { display: block; }
+  .setline .c-issues { margin-top: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
