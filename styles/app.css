@@ -1,18 +1,18 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Bad Case Rubrics Review Viewer — components
+   Bad Case Rubrics Review Viewer — components  ·  v2.0.0
    Archetype: review queue (.claude/skills/uiux/archetypes.md §5)
 
    Every class name here is also written by the JS in index.html (it builds
-   most of the DOM with `className = '…'`), so names are fixed. Only values
-   changed in the house-system retrofit.
+   most of the DOM with `className = '…'`), so names are fixed. The
+   conversation block deliberately uses context.template.html's names verbatim.
 
    Colour rules followed throughout:
      blue  = neutral data, informational, interactive, focus
      green = success only
      red   = error and destructive only
-   The reference defines no amber, so the former --warn-* pair is gone: the
-   load report and language-fallback badges are informational (blue), and
-   parse failures and misaligned rows are errors (red).
+   The reference defines no amber, so informational marks (language-fallback
+   badges, agent-pane diff highlights, the `differs from turn N` note) are blue,
+   and anything reporting a failure is red AND carries a glyph.
    ══════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -136,6 +136,8 @@ code, pre, .mono { font-family: var(--font-mono); }
 .btn-danger { background: var(--red); color: var(--on-accent); border-color: var(--red); }
 .btn-danger:hover { background: var(--red); color: var(--on-accent); border-color: var(--red); filter: brightness(1.08); }
 .btn-icon { padding: 4px 8px; min-width: 32px; justify-content: center; }
+/* A toggle button that is currently on — the extra-columns control. */
+.btn.is-on { background: var(--blue); color: var(--on-accent); border-color: var(--blue); }
 
 /* ── chips ────────────────────────────────────────────────────────────── */
 
@@ -216,7 +218,7 @@ code, pre, .mono { font-family: var(--font-mono); }
 /* The native file control renders as an unstyleable "Choose File | none" widget,
    which the house system has no shape for. Hide it visually and let the label be
    the button; the input stays in the tab order, so :focus-within carries the ring.
-   The chosen filename is already reported by #fileMeta in the same bar. */
+   The chosen filenames are already reported by #fileMeta in the same bar. */
 .filebtn input {
   position: absolute; width: 1px; height: 1px; opacity: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
@@ -225,7 +227,7 @@ code, pre, .mono { font-family: var(--font-mono); }
 .filename { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
 
 /* ── load report ──────────────────────────────────────────────────────────
-   Partial success on import: N cases loaded, M of them with unparseable cells.
+   Partial success on import: N cases loaded, M lines or rows with problems.
    It is only rendered when something failed, so it is red and carries an alert
    glyph — colour is never the sole signal. */
 
@@ -244,7 +246,9 @@ code, pre, .mono { font-family: var(--font-mono); }
 .report ul { margin: 0; padding-left: 20px; }
 .report li { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; color: var(--text-2); }
 
-/* ── header strip ─────────────────────────────────────────────────────── */
+/* ── header strip ─────────────────────────────────────────────────────────
+   Stays visible while judging: the language code must be readable at the
+   moment a criterion's language is being assessed, not two scrolls up. */
 
 .headerstrip {
   flex: 0 0 auto;
@@ -278,6 +282,7 @@ code, pre, .mono { font-family: var(--font-mono); }
   color: var(--text-1);
   background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
 }
+.panel > header .title.static { cursor: default; }
 .panel > header .spacer { margin-left: auto; }
 .panel .body { padding: 12px 16px; overflow-x: auto; }
 .panel.collapsed .body { display: none; }
@@ -310,7 +315,6 @@ code, pre, .mono { font-family: var(--font-mono); }
 }
 .pinned .panel { margin: 12px 24px; }
 .pinned .body { max-height: var(--prompt-h); overflow-y: auto; }
-.pinned.collapsed-outer .body { display: none; }
 .grip {
   height: 8px; cursor: ns-resize; background: var(--surface-2);
   border-top: 1px solid var(--border);
@@ -325,7 +329,10 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
 
 /* ── markdown body ────────────────────────────────────────────────────── */
 
-.md { word-break: break-word; font-size: 14px; line-height: 1.65; }
+/* context.template.html names a rendered message body `markdown-content`; the
+   JS sets both classes on it, and `.md` below carries all the styling. Keeping
+   the template's name means CSS written against the template still applies. */
+.md, .markdown-content { word-break: break-word; font-size: 14px; line-height: 1.65; }
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
 .md pre {
@@ -355,19 +362,102 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   padding: 12px; border-radius: var(--r-sm);
 }
 
-/* conversation turns */
-.turn { border-left: 3px solid var(--border); padding-left: 12px; margin-bottom: 16px; }
-.turn-role {
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
-  margin-bottom: 4px;
+/* ── the conversation ─────────────────────────────────────────────────────
+   Class names are context.template.html's, verbatim.
+
+   Roles are demarked three ways at once: the card class (colour and accent),
+   the role label in .message-role, and structural position — user above the
+   axis, assistant below it. The axis sits BETWEEN them, so a turn boundary is
+   a visible rule carrying the number rather than a gap. */
+
+.preamble {
+  border: 1px dashed var(--border-strong); border-radius: var(--r-lg);
+  background: var(--surface-2);
+  padding: 8px 12px; margin-bottom: 16px;
+}
+.preamble > summary {
+  cursor: pointer; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+}
+.preamble .message-card { margin-top: 12px; }
+
+.conversation-list { display: flex; flex-direction: column; gap: 20px; }
+
+.conversation-turn { display: flex; flex-direction: column; }
+
+.message-card {
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface-2);
+  padding: 12px 16px;
+  border-left: 3px solid var(--border-strong);
+}
+.message-card.user      { border-left-color: var(--text-4); }
+.message-card.assistant { border-left-color: var(--blue); background: var(--surface); }
+.message-card.system {
+  border-left-color: var(--border-strong);
+  border-style: dashed;
+  background: var(--surface-2);
+}
+/* The flagged assistant message: the one thing on the page the judgement is
+   about, so it is emphasised — paired with the .problem-badge text, never
+   carried by colour alone. */
+.message-card.assistant.is-problem {
+  border-color: var(--blue); border-left-width: 4px;
+  box-shadow: var(--shadow-card);
 }
 
-/* judge reasons */
-.jr { list-style: none; margin: 0; padding: 0; }
-.jr li { padding: 8px 0; border-top: 1px solid var(--border); }
-.jr li:first-child { border-top: 0; padding-top: 0; }
-.jr .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.message-role {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.message-role strong {
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
+}
+.message-meta { display: inline-flex; align-items: center; gap: 8px; }
+.problem-badge {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-pill);
+  background: var(--blue); color: var(--on-accent);
+}
+
+/* ~12 lines, then a control. The problem turn is exempt and never gets these. */
+.message-body.is-clamped {
+  max-height: 19.8em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, black 82%, transparent 100%);
+          mask-image: linear-gradient(to bottom, black 82%, transparent 100%);
+}
+.showmore {
+  margin-top: 8px;
+  background: none; border: 0; padding: 4px 0; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--blue);
+}
+.showmore:hover { text-decoration: underline; }
+
+/* The rule between a turn's user and assistant halves, carrying the number. */
+.turn-axis {
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 0;
+  color: var(--text-3);
+}
+.turn-axis::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.turn-number {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  min-width: 24px; height: 24px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  background: var(--surface-2); color: var(--text-2);
+}
+.problem-label {
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-pill);
+  background: var(--blue-tint); color: var(--blue);
+}
+.is-problem-turn .turn-number { border-color: var(--blue); color: var(--blue); }
+
+.assistant-stack { display: flex; flex-direction: column; gap: 8px; }
 
 /* ── agent panes ──────────────────────────────────────────────────────── */
 
@@ -384,7 +474,8 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
   user-select: text;
 }
-/* Marks the text unique to this pane — data emphasis, so blue. */
+/* Marks the text unique to this pane — data emphasis, so blue. Purely for
+   display; it never feeds the output. */
 .agent-field .value .uniq {
   background: var(--blue-tint);
   border-bottom: 2px solid var(--blue);
@@ -395,13 +486,13 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
 /* ── rubrics table ────────────────────────────────────────────────────── */
 
 .rtable {
-  --cols: 6% 40% 10% 22% 22%;
+  --cols: 4% 28% 11% 10% 9% 19% 19%;
   border: 1px solid var(--border); border-radius: var(--r-2xl);
   box-shadow: var(--shadow-card);
   margin-bottom: 12px; background: var(--surface);
   font-size: 13px;
 }
-/* Criterion-language switch above the table. */
+/* Language switch and the extra-columns toggle, above the table. */
 .langbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .langbar-label { font-size: 13px; font-weight: 500; color: var(--text-2); }
 
@@ -416,40 +507,37 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
 }
 .rhead > span { padding: 8px 12px; }
 .rrow { border-top: 1px solid var(--border); }
-.rhead + .rrow, .rbody > .rrow:first-child { border-top: 0; }
+.rbody > .rrow:first-child { border-top: 0; }
 .rrow > div { padding: 8px 12px; min-width: 0; }
-/* Listed in the upstream alignment check's misaligned_indices. Paired with the
-   .mis-flag label below, so the tint is reinforcement rather than the signal. */
-.rrow.misaligned { background: var(--red-tint); }
-.mis-flag {
-  font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--red); white-space: nowrap;
-}
 
-/* One grid line per selected code; id / criterion / weight span all of them.
-   `--lines` is set per row in buildRubricRow. Auto-placement then fills the
-   code and issues columns line by line, skipping the spanned cells. */
-.rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: span var(--lines, 1); }
+/* One grid line per selected code; every non-code column is rendered once and
+   spans all of them. `--lines` is set per row in buildRubricRow. Auto-placement
+   then fills the code and issues columns line by line, skipping spanned cells. */
+.rrow > .rspan { grid-row: span var(--lines, 1); }
 .rrow > .c-code, .rrow > .c-issues { border-top: 1px dotted var(--border); }
 .rrow > .line-first { border-top: 0; }
 
-.c-id { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.c-id .expander {
-  background: none; border: 0; cursor: pointer; padding: 4px;
-  font-family: var(--font-mono); font-weight: 600; font-size: 13px;
-  color: var(--text-1); border-radius: 4px;
-}
-.c-id .expander:hover { background: var(--surface-2); }
-.c-crit { user-select: text; }
+.c-num { display: flex; align-items: flex-start; gap: 4px; }
+.c-num .rnum { font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
+.c-req { user-select: text; }
+.c-imp, .c-dim { color: var(--text-2); word-break: break-word; }
+.c-src { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+.c-src .chip { font-size: 11.5px; padding: 2px 8px; }
+.c-meets { color: var(--text-2); font-size: 12px; }
 .c-weight .badge {
   display: inline-block; font-family: var(--font-mono); font-size: 12px;
   background: var(--surface-2); color: var(--text-2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: 0 8px; white-space: nowrap;
 }
+/* A negative weight identifies a pitfall rubric and stays visually distinct.
+   Blue, not red: a pitfall is a kind of criterion, not a failure. */
+.c-weight .badge.is-pitfall {
+  background: var(--blue-tint); color: var(--blue); border-color: var(--blue);
+}
 .c-issues textarea {
-  /* Short per-code notes now, not one paragraph per criterion — a low floor
-     keeps a three-code rubric from opening 200px tall. Auto-grow does the rest.
+  /* Short per-code notes, not one paragraph per criterion — a low floor keeps a
+     three-code rubric from opening 200px tall. Auto-grow does the rest.
      min-height must stay 40px: autoGrow() clamps to the same number. */
   width: 100%; min-height: 40px; resize: vertical; overflow: hidden;
   padding: 8px;
@@ -457,10 +545,8 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   background: var(--surface); color: var(--text-1);
   font-size: 13px; line-height: 1.5;
 }
-/* --text-2, not --text-3: these sit inside .rrow.misaligned, whose --red-tint
-   background drops --text-3 to 4.1:1. --text-2 clears 4.5:1 on every row tint. */
 .rowclear {
-  background: none; border: 0; cursor: pointer; padding: 4px 8px;
+  background: none; border: 0; cursor: pointer; padding: 4px;
   color: var(--text-2); font-size: 15px; line-height: 1; border-radius: 4px;
 }
 .rowclear:hover { color: var(--red); background: var(--red-tint); }
@@ -479,7 +565,7 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
 .codebtn .placeholder { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
 .linedel {
   flex: none; background: none; border: 0; cursor: pointer; padding: 4px;
-  color: var(--text-2); font-size: 15px; line-height: 1; border-radius: 4px;   /* see .rowclear */
+  color: var(--text-2); font-size: 15px; line-height: 1; border-radius: 4px;
 }
 .linedel:hover { color: var(--red); background: var(--red-tint); }
 
@@ -495,18 +581,6 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   width: 1px; background: var(--border-strong);
 }
 .resizer:hover::after, .resizer:focus-visible::after { background: var(--blue); width: 2px; }
-
-.rexp {
-  border-top: 1px dashed var(--border);
-  background: var(--surface-2);
-  padding: 12px 16px; font-size: 13px;
-}
-.rexp dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
-.rexp dt {
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
-  letter-spacing: .05em; text-transform: uppercase; color: var(--text-3);
-}
-.rexp dd { margin: 0; word-break: break-word; color: var(--text-2); }
 
 /* ── error-code popover ───────────────────────────────────────────────────
    `fixed`, not `absolute`: the app is a non-scrolling 100dvh flex column, so
@@ -564,30 +638,15 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   background: var(--surface); color: var(--text-1); font-size: 13px; line-height: 1.55;
 }
 
-/* Case-level code — belongs to the case, not to any rubric row, so it lives
-   above the generated cells rather than in the rubrics table. */
-.caselevel {
+/* The two non-row scopes. Same picker, same one-box-per-code rule, so the same
+   chip/line shape as a rubric row. */
+.scopebox {
   border: 1px solid var(--border); border-radius: var(--r-xl); padding: 12px;
   margin-bottom: 16px; background: var(--surface-2);
 }
-.caselevel .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.caselevel .cl-check {
-  display: flex; align-items: center; gap: 8px;
-  font-weight: 600; font-size: 13px; cursor: pointer;
-}
-.caselevel .cl-check input { accent-color: var(--blue); }
-
-#langReqNote {
-  width: 100%; min-height: 60px; resize: vertical; margin-top: 8px;
-  padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--surface); color: var(--text-1); font-size: 13px; line-height: 1.55;
-}
-
-/* Whole-rubrics codes — the same fourteen codes, judged against the rubric set
-   rather than a criterion. Same picker, so the same chip/line shape as a row. */
-.setcodes { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
-.setcodes .cl-title { font-weight: 600; font-size: 13px; }
-#setCodeBtn { display: block; width: 100%; margin-top: 8px; }
+.scopebox .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.scopebox .cl-title { font-weight: 600; font-size: 13px; }
+.scopebox > .codebtn { display: block; width: 100%; margin-top: 8px; }
 .setline { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .setline .c-code { flex: 0 0 34%; }
 .setline .c-issues { flex: 1; }
@@ -613,17 +672,30 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
   border-top: 1px solid var(--border); padding-top: 12px;
 }
 
-details.other {
-  border: 1px solid var(--border); border-radius: var(--r-xl);
-  background: var(--surface);
-  padding: 12px 16px; margin-bottom: 24px;
-}
-details.other summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-2); }
-details.other dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0 4px; }
-details.other dt { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
-details.other dd { margin: 0; word-break: break-word; font-size: 13px; }
+/* ── badcase analysis ─────────────────────────────────────────────────────
+   Sits AFTER the Final box: you judge from the response and the rubrics, and
+   consult the pipeline's reasoning when you disagree. */
 
-.dangerzone { display: flex; justify-content: flex-end; padding: 8px 0 40px; }
+.analysis {
+  border-top: 2px solid var(--border-strong);
+  padding-top: 20px; margin-bottom: 24px;
+}
+.analysis h2 { margin: 0 0 16px; font-size: 17px; font-weight: 600; color: var(--text-2); }
+.a-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.a-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+
+.jr-group { margin-bottom: 16px; }
+.jr-group:last-child { margin-bottom: 0; }
+.jr-source {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--text-2); margin-bottom: 4px;
+}
+.jr { list-style: none; margin: 0; padding: 0 0 0 12px; border-left: 2px solid var(--border); }
+.jr li { padding: 8px 0 8px 12px; border-top: 1px solid var(--border); }
+.jr li:first-child { border-top: 0; padding-top: 4px; }
+.jr .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+
+.dangerzone { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 0 40px; }
 
 /* ── empty state ──────────────────────────────────────────────────────── */
 
@@ -675,10 +747,12 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
   border-radius: var(--r-sm); padding: 4px 8px; white-space: nowrap;
 }
 #helpDialog dd { margin: 0; font-size: 13px; color: var(--text-2); align-self: center; }
+#helpDialog .version { font-family: var(--font-mono); color: var(--text-3); }
 
-/* ── responsive: stack table into cards, agents vertically ────────────── */
+/* ── responsive: stack table into cards, agents vertically ────────────────
+   1280px, not v1's 1000px: seven columns need more room than five. */
 
-@media (max-width: 1000px) {
+@media (max-width: 1280px) {
   .agents { grid-template-columns: 1fr; }
   .rhead { display: none; }
   .rrow { grid-template-columns: 1fr; gap: 4px; padding: 8px 0 12px; }
@@ -690,16 +764,18 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
     text-transform: uppercase; letter-spacing: .05em; color: var(--text-3);
     margin-bottom: 4px;
   }
-  .c-id::before { display: none; }
-  /* Single column: drop the spans and let the pairs stack in DOM order —
-     id, criterion, weight, then each code directly above its own box. */
-  .rrow > .c-id, .rrow > .c-crit, .rrow > .c-weight { grid-row: auto; }
+  .c-num::before { display: none; }
+  /* Single column: drop the spans and let the cells stack in DOM order — #,
+     requirement, the metadata cells, then each code directly above its box. */
+  .rrow > .rspan { grid-row: auto; }
   .rrow > .c-code, .rrow > .c-issues { border-top: 0; }
   .rrow > .c-code { padding-top: 8px; }
-  .c-id { flex-direction: row; align-items: center; gap: 8px; }
-  /* Same stacking rule for the whole-rubrics lines: code above its own box. */
+  .c-num { align-items: center; gap: 8px; }
+  /* Same stacking rule for the case and whole-rubrics lines. */
   .setline { display: block; }
   .setline .c-issues { margin-top: 8px; }
+  /* The axis becomes a label above the pair rather than a rule between them. */
+  .turn-axis::after { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

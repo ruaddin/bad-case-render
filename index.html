@@ -9,7 +9,7 @@
      the toggle is the sole theme driver (spec, Theming). -->
 <script>
   try {
-    var ui = JSON.parse(localStorage.getItem('brv:ui') || '{}');
+    var ui = JSON.parse(localStorage.getItem('brv2:ui') || '{}');
     if (ui.theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   } catch (e) { /* first run, or storage blocked */ }
 </script>
@@ -70,10 +70,10 @@
     <div class="nav-group">
       <button type="button" class="btn btn-icon" id="prevCase" aria-label="Previous case" title="Previous case (Alt+←)">‹</button>
       <div class="combobox">
-        <label class="sr-only" for="caseSearch">Search cases by case id or row number</label>
+        <label class="sr-only" for="caseSearch">Search cases by label or line number</label>
         <input type="text" id="caseSearch" role="combobox" autocomplete="off" spellcheck="false"
                aria-expanded="false" aria-controls="caseList" aria-autocomplete="list"
-               placeholder="case id…" disabled />
+               placeholder="case…" disabled />
         <span class="count" id="caseCount"></span>
         <ul id="caseList" role="listbox" aria-label="Cases" hidden></ul>
       </div>
@@ -87,20 +87,31 @@
         <button type="button" id="globalEn" aria-pressed="false">ENG</button>
       </div>
       <button type="button" class="btn" id="collapseAll" aria-label="Collapse or expand all panels">⇵ collapse all</button>
+      <!-- Two labelled file inputs, always visible. The drop zone routes by
+           extension; these are the keyboard-reachable equivalent. -->
       <label class="filebtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <path d="M7 9l5-5 5 5M12 4v12"/>
         </svg>
-        <span>Load CSV</span>
-        <input type="file" id="fileInput" accept=".csv,text/csv" aria-label="Choose a CSV file" />
+        <span>Load JSONL</span>
+        <input type="file" id="casesInput" accept=".jsonl,.json,application/json" aria-label="Choose the cases JSONL file" />
+      </label>
+      <label class="filebtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <path d="M7 9l5-5 5 5M12 4v12"/>
+        </svg>
+        <span>Load agents CSV</span>
+        <input type="file" id="agentsInput" accept=".csv,text/csv" aria-label="Choose the Agent A / Agent B CSV file" />
       </label>
     </div>
   </header>
 
-  <!-- Only ever shown when rows failed to parse, so it is an error banner, not an
-       info one. The glyph is markup rather than a character in the title string so
+  <!-- Only ever shown when something failed to parse or match, so it is an error
+       banner. The glyph is markup rather than a character in the title string, so
        the tint is never the only signal (uiux reference §5, "Color as signal"). -->
   <div class="report" id="loadReport" role="alert" hidden>
     <svg class="glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -127,13 +138,14 @@
     <div class="empty" id="emptyState">
       <p class="eyebrow">Review queue</p>
       <h1>Bad Case Rubrics Review Viewer</h1>
-      <p>Step through a rubrics export case by case, judge each criterion against the error-code
-         taxonomy, and copy the verdict out. Nothing leaves this machine — the file is read in the
-         browser and never uploaded, and the CSV itself is never modified.</p>
+      <p>Step through a rubrics export case by case, compare the two annotators, judge each criterion
+         against the error-code taxonomy, and copy the verdict out. Nothing leaves this machine —
+         both files are read in the browser, never uploaded, and never written back to.</p>
       <div class="dropzone">
-        <p><strong>Drop the CSV anywhere on this window</strong>, or use
-           <strong>Load CSV</strong> in the top bar.</p>
-        <span class="dropzone-hint">Accepts .csv · read locally · nothing is uploaded</span>
+        <p><strong>Drop the cases <code>.jsonl</code> anywhere on this window</strong>, or use
+           <strong>Load JSONL</strong> in the top bar.</p>
+        <span class="dropzone-hint">The Agent A / Agent B <code>.csv</code> is optional and can be
+          dropped before or after, on the same zone · read locally · nothing is uploaded</span>
       </div>
     </div>
 
@@ -145,26 +157,24 @@
       <div class="final">
         <h2>Final</h2>
 
-        <div class="caselevel">
+        <div class="scopebox">
           <div class="row">
-            <label class="cl-check" for="langReqCheck">
-              <input type="checkbox" id="langReqCheck">
-              <span>P0 Missing Language Requirement</span>
-            </label>
-            <span class="ro-note">case-level · independent of any rubric</span>
+            <span class="cl-title">Case-level error codes</span>
+            <span class="ro-note">judged against the prompt and history · not levelled at any criterion</span>
           </div>
-          <textarea id="langReqNote" hidden aria-label="Comment for P0 Missing Language Requirement"
-                    placeholder="Why this code applies to the case…"></textarea>
+          <button type="button" class="codebtn" id="caseCodeBtn"
+                  aria-haspopup="true" aria-expanded="false"></button>
+          <div id="caseCodeLines"></div>
+        </div>
 
-          <div class="setcodes">
-            <div class="row">
-              <span class="cl-title">Whole-rubrics error codes</span>
-              <span class="ro-note">judged against the rubric set as a whole · independent of the per-criterion codes</span>
-            </div>
-            <button type="button" class="codebtn" id="setCodeBtn"
-                    aria-haspopup="true" aria-expanded="false"></button>
-            <div id="setCodeLines"></div>
+        <div class="scopebox">
+          <div class="row">
+            <span class="cl-title">Whole-rubrics error codes</span>
+            <span class="ro-note">judged against the rubric set as a whole · independent of the per-criterion codes</span>
           </div>
+          <button type="button" class="codebtn" id="setCodeBtn"
+                  aria-haspopup="true" aria-expanded="false"></button>
+          <div id="setCodeLines"></div>
         </div>
 
         <div class="outfield">
@@ -206,18 +216,22 @@
         </div>
       </div>
 
-      <details class="other" id="otherFields">
-        <summary>Other fields</summary>
-        <dl id="otherFieldsList"></dl>
-      </details>
+      <!-- Deliberately AFTER the Final box: you judge from the response and the
+           rubrics, and consult the pipeline's reasoning when you disagree. -->
+      <section class="analysis" id="badcaseAnalysis" aria-label="Badcase Analysis">
+        <h2>Badcase Analysis</h2>
+        <div id="step1Wrap"></div>
+        <div id="judgeWrap"></div>
+      </section>
 
       <div class="dangerzone">
+        <button type="button" class="btn" id="clearV1">Clear v1 data…</button>
         <button type="button" class="btn" id="clearAll">Clear all review data…</button>
       </div>
     </div>
   </main>
 
-  <div id="dropOverlay" hidden>Drop the CSV to load it</div>
+  <div id="dropOverlay" hidden>Drop a <code>.jsonl</code> (cases) or a <code>.csv</code> (Agent A / B)</div>
 </div>
 
 </div><!-- /.app -->
@@ -240,8 +254,10 @@
     <dt>Esc</dt><dd>Close this sheet, the error-code picker, or the case list</dd>
     <dt>Tab</dt><dd>Move through every control in reading order</dd>
   </dl>
-  <p>Review state is kept per case for the whole session, so switching cases never loses entered
-     codes or notes. The CSV on disk is never written to.</p>
+  <p>Review state is stored per case and keyed by <code>enc_chat_id</code>, so it survives switching
+     cases, reloading the page, and the Agent A / B CSV being absent, replaced or re-exported.
+     Neither input file is ever written to.</p>
+  <p class="version">v2.0.0</p>
   <div class="actions">
     <button type="button" class="btn btn-primary" id="helpClose">Close</button>
   </div>
@@ -262,114 +278,123 @@
    The only place taxonomy, column names and thresholds are written down.
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* Canonical order. Governs both menu order and output ordering.
-   Every code applies to every criterion — there is no positional gate.
-   The same list feeds the whole-rubrics picker unchanged. */
+var VERSION = '2.0.0';
+
+/* Canonical order. Governs the menu order in the ALL and R<n> scopes, and —
+   after the four Prompt: codes — the output ordering of both generated cells.
+   Every code applies to every criterion; there is no positional gate. */
 var ERROR_CODES = [
-  { code: 'P0 Inauthenticity / Fabrication / False Capability' },
-  { code: 'P0 Unmet Demands / Missing Critical Element' },
-  { code: 'P0 Severely Irrelevant Rubric Points' },
-  { code: 'P0 Non-Binary / Vague Subjective Criteria' },
-  { code: 'P1 Mildly Irrelevant Rubric Points' },
-  { code: 'P1 Rubric is Not Self-Contained' },
-  { code: 'P1 Unreasonable Rubric Weightage' },
-  { code: 'P1 Rubrics Redundancy (Fluff / Bonus Bloat)' },
-  { code: 'P1 Rubrics Lack Atomicity' },
-  { code: 'P2 Rubrics not in Chinese' },
-  { code: 'P2 Rubrics Lack Prompt Specificity' },
-  { code: 'P2 Repetitive / Overlapping / Contradictory' },
-  { code: 'P2 Homogenous / Undifferentiated Weightage' },
-  { code: 'P2 Weak Pitfall ("Others")' }
+  'P0 Inauthenticity / Fabrication / False Capability',
+  'P0 Unmet Demands / Missing Critical Element',
+  'P0 Severely Irrelevant Rubric Points',
+  'P0 Non-Binary / Vague Subjective Criteria',
+  'P0 Missing Language Requirement',
+  'P0 Unreasonable Rubric Weightage',
+  'P0 Others',
+  'P1 Mildly Irrelevant Rubric Points',
+  'P1 Rubric is Not Self-Contained',
+  'P1 Rubrics Lack Atomicity',
+  'P1 Rubrics Redundancy (Fluff / Bonus Bloat)',
+  'P1 Rubrics Redundancy (Overly Atomized)',
+  'P1 Homogenous / Undifferentiated Weightage',
+  'P1 Others',
+  'P2 Rubrics Lack Prompt Specificity',
+  'P2 Repetitive / Overlapping / Contradictory',
+  'P2 Rubrics not in Chinese',
+  'P2 Others'
 ];
+
+/* Case scope only. The four `Prompt:` codes judge the prompt and history, not a
+   criterion, so they never appear in the ALL or R<n> pickers.
+   `P0 Missing Language Requirement` is deliberately in BOTH lists — it is
+   selectable in all three scopes and collapses to one output group. */
+var CASE_LEVEL_CODES = [
+  'Prompt: Time Sensitive',
+  'Prompt: Vague',
+  'Prompt/History: Contains Image',
+  'Prompt/History: Missing Context',
+  'P0 Missing Language Requirement'
+];
+
+/* The four codes that lead the sort, in the order listed above. */
+var PROMPT_CODES = CASE_LEVEL_CODES.filter(function (c) { return ERROR_CODES.indexOf(c) === -1; });
+
+/* One sort rule, applied to both generated cells: the Prompt: block, then the
+   eighteen in canonical order. Scope never affects sort position. */
+var SORT_ORDER = PROMPT_CODES.concat(ERROR_CODES);
 var CODE_ORDER = {};
-ERROR_CODES.forEach(function (c, i) { CODE_ORDER[c.code] = i; });
+SORT_ORDER.forEach(function (c, i) { CODE_ORDER[c] = i; });
 
-/* Case-level code. Judged against the case as a whole, so it is deliberately
-   NOT in ERROR_CODES — it never appears in a rubric row's picker. It leads both
-   generated cells when checked. */
-var CASE_LEVEL_CODE = 'P0 Missing Language Requirement';
+/* The two non-row scopes stand where a row index stands, so one picker, one
+   state shape and one re-render path serve all three. */
+var CASE_TARGET = 'case';
+var SET_TARGET = 'set';
 
-/* Whole-rubrics selection. The same fourteen ERROR_CODES applied to the rubric
-   set as a whole, independently of any row — a second, parallel application of
-   the taxonomy, not a change to what a code means on a criterion. Its remarks
-   blocks carry this prefix where a row's carry `R<n>`. */
-var SET_PREFIX = 'ALL';
+/* Whole-object `_translated` siblings at the top level. Six keys, one rule —
+   no hand-maintained map, because the convention is regular. */
+var TRANSLATABLE = [
+  'user_prompt',
+  'model_response',
+  'messages',
+  'badcase_judge_reasons',
+  'step1_precision_screening',
+  'step3_rubrics_generation'
+];
 
-/* Column names are matched case-insensitively and whitespace-normalized, so
-   these are written lowercase. Source headers keep their original casing
-   (`Error codes Agent A`) and their typos (`badcase_judge_reasons_translate`,
-   which is genuinely missing its `d`). Never build these by concatenation. */
-var TRANSLATION_MAP = {
-  user_prompt:      { zh: 'user_prompt',      en: 'user_prompt_translated' },
-  model_response:   { zh: 'model_response',   en: 'model_response_translated' },
-  chat_history:     { zh: 'chat_history',     en: 'chat_history_translated' },
-  post_user_prompt: { zh: 'post_user_prompt', en: 'post_user_prompt_translated' },
-  judge_reasons:    { zh: 'badcase_judge_reasons', en: 'badcase_judge_reasons_translate' }
-};
-
+/* Agent CSV columns. Matched case-insensitively and whitespace-normalized, so
+   written lowercase here. Every other column is ignored silently. */
 var COL = {
-  caseId:        'case id',
   encChatId:     'enc_chat_id',
-  langCode:      'prompt_msg_lang_code',
-  rubrics:       'rubrics',
-  step3:         'step3_rubrics_generation_translated',
-  step4:         'step4_rubric_alignment_translated',
+  caseId:        'case id',
   agentACodes:   'error codes agent a',
   agentARemarks: 'remarks agent a',
   agentBCodes:   'error codes agent b',
   agentBRemarks: 'remarks agent b'
 };
 
-/* Read-only, collapsed, otherwise ignored. Display label → normalized column. */
-var OTHER_FIELDS = [
-  ['Status',                'status'],
-  ['Operator',              'operator'],
-  ['Final Error Codes',     'final error codes'],
-  ['Final Remarks',         'final remarks'],
-  ["Error Codes' Priority", "error codes' priority"],
-  ['Final Decision',        'final decision'],
-  ['Submit?',               'submit?'],
-  ['Label Submit Date',     'label submit date'],
-  ['Pass with error',       'pass with error']
-];
-
-/* Both languages' role prefixes, ASCII and full-width colon. Applied
-   opportunistically — a miss renders one block, it never drops content. */
-var TURN_PATTERN = /^\s*(User|Assistant|System|用户|助手|系统|模型)\s*[:：]/gm;
-
-/* `importance` in the data is ignored; the band is derived from `weight`. */
+/* Derived from `weight` alone. `importance` is an unrelated metric and is never
+   compared against this (specifications.md, Rubric objects). */
 var WEIGHT_BANDS = [
-  { test: function (w) { return w < 0; },            label: 'pitfall' },
-  { test: function (w) { return w >= 1 && w <= 4; }, label: 'minor' },
-  { test: function (w) { return w >= 5 && w <= 8; }, label: 'important' },
-  { test: function (w) { return w >= 9 && w <= 10; },label: 'critical' }
+  { test: function (w) { return w < 0; },             label: 'pitfall' },
+  { test: function (w) { return w >= 1 && w <= 4; },  label: 'minor' },
+  { test: function (w) { return w >= 5 && w <= 8; },  label: 'important' },
+  { test: function (w) { return w >= 9 && w <= 10; }, label: 'critical' }
 ];
-
-var CHUNK_RE = /^(.+)_(\d+)$/;
-var EXCEL_CELL_LIMIT = 32767;
-
-/* Open item #2: assumed 0-based, matching the rubrics array. A one-character
-   change here if the export turns out to be 1-based. */
-var MISALIGNED_BASE = 0;
-
-/* Exist only inside the step3 blob; no Chinese source anywhere in the file. */
-var ENGLISH_ONLY_FIELDS = ['decision', 'failure_type', 'target_capability'];
 
 var LS = {
-  csvName: 'brv:csvName',
-  ui:      'brv:ui',
-  casePfx: 'brv:case:'
+  casesName:  'brv2:casesName',
+  agentsName: 'brv2:agentsName',
+  ui:         'brv2:ui',
+  casePfx:    'brv2:case:',
+  v1Pfx:      'brv:'            /* not read, not migrated — only cleared on request */
 };
 
-/* `reference`, `alignment reasons` and `rubric_summary` were removed 2026-08-05 —
-   noise the adjudicator does not read. The step4 blob is still parsed: the
-   aligned/severity header chips and the misaligned row tint come from it. */
+/* Panels that carry a language toggle and a persisted collapse state. The
+   pinned prompt and the rubrics table are listed separately because they are
+   not built by renderPanels(). */
 var PANELS = [
-  { id: 'model_response',   title: 'model_response',        lang: true,  raw: true,  turns: false },
-  { id: 'chat_history',     title: 'chat_history',          lang: true,  raw: true,  turns: true },
-  { id: 'post_user_prompt', title: 'post_user_prompt',      lang: true,  raw: true,  turns: true },
-  { id: 'judge_reasons',    title: 'badcase_judge_reasons', lang: true,  raw: false, turns: false }
+  { id: 'model_response', title: 'model_response', lang: true, raw: true },
+  { id: 'conversation',   title: 'conversation',   lang: true, raw: true }
 ];
+var ALL_PANEL_IDS = ['user_prompt', 'model_response', 'conversation', 'step1_analysis', 'judge_reasons'];
+var LANG_TARGETS = ALL_PANEL_IDS.concat(['rubrics']);
+
+/* Nine columns; `imp` and `src` are revealed together by one toggle. Widths are
+   stored per column NAME, so a hidden column keeps its width, and the visible
+   subset is normalized to 100% at render. */
+var RUBRIC_COLS = [
+  { key: 'num',    label: '#',                  w: 4,  extra: false },
+  { key: 'req',    label: 'requirement',        w: 28, extra: false },
+  { key: 'imp',    label: 'importance',         w: 8,  extra: true  },
+  { key: 'dim',    label: 'dimension',          w: 11, extra: false },
+  { key: 'weight', label: 'weight',             w: 10, extra: false },
+  { key: 'meets',  label: 'bad_response_meets', w: 9,  extra: false },
+  { key: 'src',    label: 'source',             w: 10, extra: true  },
+  { key: 'code',   label: 'error code',         w: 19, extra: false },
+  { key: 'issues', label: 'issues to fix',      w: 19, extra: false }
+];
+var MIN_COL = 5;         /* normalized % */
+var CLAMP_LINES = 12;    /* message body clamp; the problem turn is exempt */
 
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -400,125 +425,85 @@ var ui = Object.assign({
   panelLangs: {},      // panelId -> 'zh' | 'en'   (defaults to 'en')
   panelCollapsed: {},  // panelId -> bool          (global across cases)
   promptHeight: null,  // px
-  colWidths: null,     // [5]% for the rubrics grid
+  colWidths: null,     // { colKey: % }
+  extraColumns: false,
   theme: 'light'
 }, lsGet(LS.ui, {}));
 
+/* The conversation is the largest thing on the page and sits above the work
+   surface, so it seeds to collapsed — once, not on every load. */
+['conversation', 'step1_analysis'].forEach(function (id) {
+  if (ui.panelCollapsed[id] === undefined) ui.panelCollapsed[id] = true;
+});
+
 var saveUI = debounce(function () { lsSet(LS.ui, ui); }, 200);
 
-function reviewKey(caseId) { return LS.casePfx + caseId; }
-function loadReview(caseId) {
-  var r = lsGet(reviewKey(caseId), null);
+function reviewKey(caseKey) { return LS.casePfx + caseKey; }
+
+function loadReview(caseKey) {
+  var r = lsGet(reviewKey(caseKey), null);
   if (!r || typeof r !== 'object') r = {};
-  if (!r.rows || typeof r.rows !== 'object') r.rows = {};
+  if (!r.rows || typeof r.rows !== 'object' || Array.isArray(r.rows)) r.rows = {};
   if (typeof r.remarks !== 'string') r.remarks = '';
-  var lr = r.langReq;
-  r.langReq = {
-    on: !!(lr && lr.on),
-    // Unchecked carries no note, matching the row rule: no code → no text.
-    note: (lr && lr.on && typeof lr.note === 'string') ? lr.note : ''
-  };
-  normalizeCodeSet(r, 'set');
+  normalizeCodeSet(r, CASE_TARGET);
+  normalizeCodeSet(r, SET_TARGET);
   return r;
 }
-var saveReviewNow = function (caseId, review) {
+
+var saveReviewNow = function (caseKey, rev) {
   // Drop empty rows so cleared work doesn't linger in storage.
   var rows = {};
-  Object.keys(review.rows).forEach(function (k) {
-    var r = review.rows[k];
+  Object.keys(rev.rows).forEach(function (k) {
+    var r = rev.rows[k];
     if (r && r.codes && r.codes.length) rows[k] = r;   // no codes → no text to keep
   });
-  var lang = langReqState(review);
-  var set = setState(review);
-  if (!Object.keys(rows).length && !review.remarks && !lang.on && !set.codes.length) {
-    lsDel(reviewKey(caseId));
+  var cs = normalizeCodeSet(rev, CASE_TARGET);
+  var st = normalizeCodeSet(rev, SET_TARGET);
+  if (!Object.keys(rows).length && !rev.remarks && !cs.codes.length && !st.codes.length) {
+    lsDel(reviewKey(caseKey));
   } else {
-    lsSet(reviewKey(caseId),
-          { rows: rows, remarks: review.remarks, langReq: lang, set: set });
+    lsSet(reviewKey(caseKey), { rows: rows, set: st, case: cs, remarks: rev.remarks });
   }
 };
 var saveReview = debounce(saveReviewNow, 250);
 
-function allReviewKeys() {
+function keysWithPrefix(prefix) {
   var out = [];
   try {
     for (var i = 0; i < localStorage.length; i++) {
       var k = localStorage.key(i);
-      if (k && k.indexOf(LS.casePfx) === 0) out.push(k);
+      if (k && k.indexOf(prefix) === 0) out.push(k);
     }
   } catch (e) {}
   return out;
+}
+function allReviewKeys() { return keysWithPrefix(LS.casePfx); }
+/* v1 wrote `brv:` keyed by `case id`. Those entries are not read and not
+   migrated; this only exists so the space can be reclaimed on request. */
+function allV1Keys() {
+  return keysWithPrefix(LS.v1Pfx).filter(function (k) { return k.indexOf(LS.casePfx) !== 0; });
 }
 
 
 /* ══════════════════════════════════════════════════════════════════════════
    §3 INGEST
-   The only section that knows real column names. Everything downstream
-   consumes the normalized `Case` and nothing else.
+   The only section that knows real field and column names. Everything
+   downstream consumes the normalized `Case` and nothing else.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function normKey(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
 
-/* base -> [{col, n}] sorted numerically, so `_10` follows `_9`, not `_1`.
-   A `foo_2` with no `foo` column is not a chunk and is left alone. */
-function buildChunkIndex(fields) {
-  var present = Object.create(null);
-  fields.forEach(function (f) { present[f] = true; });
+function str(v) { return v == null ? '' : String(v); }
 
-  var map = Object.create(null);
-  fields.forEach(function (f) {
-    var m = CHUNK_RE.exec(f);
-    if (!m) return;
-    var base = m[1];
-    if (!present[base]) return;
-    (map[base] || (map[base] = [])).push({ col: f, n: parseInt(m[2], 10) });
-  });
-  Object.keys(map).forEach(function (b) { map[b].sort(function (a, c) { return a.n - c.n; }); });
-  return map;
-}
-
-/* Base first, then _N in numeric order. No separator, no trim — the cut lands
-   at an arbitrary character offset, so anything inserted or stripped corrupts
-   the text. Always runs before any parse or render. */
-function joinChunks(row, base, chunks) {
-  if (!base) return '';
-  var out = row[base] == null ? '' : String(row[base]);
-  var list = chunks[base];
-  if (list) {
-    for (var i = 0; i < list.length; i++) {
-      var v = row[list[i].col];
-      if (v != null) out += String(v);
-    }
-  }
-  return out;
-}
-
-/* Suspected truncation: the HIGHEST-numbered chunk — or an unchunked cell —
-   sitting exactly on Excel's limit, meaning the writer ran out of room and had
-   nowhere to continue.
-   Not the joined length: for a field split across five columns that number is
-   meaningless. Not an intermediate chunk either: every non-final chunk is
-   exactly 32,767 characters by construction, so testing them flags every long
-   field. Only a *terminal* cell on the limit is a signal.
-   This is the one check whose failure mode is a silently mis-adjudicated
-   rubric — a response truncated mid-sentence reads as Unmet Demands. */
-function detectTruncation(row, base, chunks) {
-  if (!base) return false;
-  var list = chunks[base];
-  var col = (list && list.length) ? list[list.length - 1].col : base;
-  var v = row[col];
-  return v != null && String(v).length === EXCEL_CELL_LIMIT;
-}
-
-/* Returns null and records an issue instead of throwing. The file always loads. */
-function safeJSON(text, label, issues) {
-  if (!text || !String(text).trim()) return null;
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    issues.push(label + ': ' + e.message);
-    return null;
-  }
+/* "Present" means it would actually render. An empty string, an empty array and
+   an empty object all count as missing, so a stub `_translated` key falls back
+   to the original rather than blanking the panel. */
+function isPresent(v) {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'string') return v.trim() !== '';
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return true;
 }
 
 function bandFor(w) {
@@ -529,154 +514,180 @@ function bandFor(w) {
   return null; // out of every band → bare number, no label
 }
 
-function buildPanelText(row, chunks, map, name, issues) {
-  var zh = joinChunks(row, map.zh, chunks);
-  var en = map.en ? joinChunks(row, map.en, chunks) : '';
-  var enMissing = !en.trim();
-  var out = {
-    zh: zh,
-    en: en,
-    zhMissing: !zh.trim(),
-    enMissing: enMissing,
-    enTruncated: !enMissing && detectTruncation(row, map.en, chunks),
-    zhTruncated: !!zh.trim() && detectTruncation(row, map.zh, chunks)
-  };
-  if (out.enTruncated) issues.push(map.en + ' truncated at ' + EXCEL_CELL_LIMIT + ' chars');
-  if (out.zhTruncated) issues.push(map.zh + ' truncated at ' + EXCEL_CELL_LIMIT + ' chars');
-  return out;
+function msgText(m) {
+  if (!m || !m.content) return '';
+  var c = m.content;
+  // The schema says one object, never an array. An array is still readable, and
+  // guessing wrong here would blank a message body.
+  if (Array.isArray(c)) return c.map(function (p) { return str(p && p.text); }).join('\n\n');
+  return str(c.text);
 }
 
-function buildCase(row, chunks, rowNumber) {
-  var issues = [];
-  var id = String(row[COL.caseId] == null ? '' : row[COL.caseId]).trim() || ('(row ' + rowNumber + ')');
+/* Turns are an exact groupBy(message_id) over the non-system messages, in
+   first-appearance order. No regex over prose, ever.
+   `system` is pulled out first: a leading run becomes the preamble, anything
+   later becomes an inline full-width block at its own position. */
+function buildConversation(messages, issues, label) {
+  var blocks = [];        // { kind: 'system' | 'turn', ... } in file order
+  var turns = [];         // the 'turn' blocks only, so turn N is turns[N-1]
+  var byId = {};
+  var seenNonSystem = false;
+  var preamble = [];
+  /* Ordinal within (message_id, role), fixed at ingest so it does not depend on
+     render order. It is what addresses messages_translated when a turn holds
+     several messages of the same role. */
+  var ordinals = {};
+  function entryFor(m, i, role) {
+    var ok = str(m.message_id) + '|' + role;
+    var n = ordinals[ok] || 0;
+    ordinals[ok] = n + 1;
+    return { msg: m, index: i, role: role, ordinal: n };
+  }
 
-  var panels = {};
-  ['user_prompt', 'model_response', 'chat_history', 'post_user_prompt'].forEach(function (k) {
-    panels[k] = buildPanelText(row, chunks, TRANSLATION_MAP[k], k, issues);
+  (messages || []).forEach(function (m, i) {
+    if (!m || typeof m !== 'object') return;
+    var role = str(m.role) || 'user';
+
+    if (role === 'system') {
+      if (!seenNonSystem) { preamble.push(entryFor(m, i, role)); return; }
+      blocks.push({ kind: 'system', messages: [entryFor(m, i, role)] });
+      return;
+    }
+    seenNonSystem = true;
+
+    var id = m.message_id;
+    var key;
+    if (id == null || String(id) === '') {
+      // Cannot join a turn: it becomes a turn of its own, in file order.
+      key = ' nomsgid:' + i;
+      issues.push(label + ' — message ' + (i + 1) + ' has no message_id, rendered as its own turn');
+    } else {
+      key = String(id);
+    }
+
+    var turn = byId[key];
+    if (!turn) {
+      turn = { kind: 'turn', id: key, number: turns.length + 1, user: [], assistant: [] };
+      byId[key] = turn;
+      turns.push(turn);
+      blocks.push(turn);
+    }
+    (role === 'assistant' ? turn.assistant : turn.user).push(entryFor(m, i, role));
   });
 
-  /* ── rubrics: two independent, complete sources ───────────────────── */
-  var rubricsRaw = joinChunks(row, COL.rubrics, chunks);
-  var zhParsed = safeJSON(rubricsRaw, 'rubrics', issues);
-  var zhArr = Array.isArray(zhParsed) ? zhParsed : null;
-  if (zhParsed && !zhArr) issues.push('rubrics: expected a JSON array');
+  return { blocks: blocks, turns: turns, preamble: preamble };
+}
 
-  var step3Raw = joinChunks(row, COL.step3, chunks);
-  var step3 = safeJSON(step3Raw, COL.step3, issues);
-  var enArr = (step3 && Array.isArray(step3.rubrics)) ? step3.rubrics : null;
-  if (step3 && !enArr) issues.push(COL.step3 + ': no `rubrics` array, ENG unavailable');
-  if (!step3 && step3Raw.trim()) issues.push(COL.step3 + ' failed to parse, ENG unavailable');
+/* messages_translated[] is matched by message_id + role, then by ordinal within
+   that pair — a turn's two messages share the id, so the id alone is not a key.
+   A miss falls back per message with a badge, never silently. */
+function indexTranslatedMessages(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  var byKey = {}, anyMissingId = false;
+  list.forEach(function (m) {
+    if (!m || typeof m !== 'object') return;
+    var id = m.message_id;
+    if (id == null || String(id) === '') { anyMissingId = true; return; }
+    var k = String(id) + '|' + str(m.role);
+    (byKey[k] || (byKey[k] = [])).push(msgText(m));
+  });
+  return { byKey: byKey, list: list, anyMissingId: anyMissingId };
+}
 
-  var step4Raw = joinChunks(row, COL.step4, chunks);
-  var step4 = safeJSON(step4Raw, COL.step4, issues);
-  if (!step4 && step4Raw.trim()) {
-    // The row tint and the aligned/severity chips live only here — a missing
-    // tint is invisible, so it must be reported.
-    issues.push(COL.step4 + ' failed to parse — alignment chips and misaligned tint unavailable');
-  }
-
-  var misaligned = Object.create(null);
-  if (step4 && Array.isArray(step4.misaligned_indices)) {
-    step4.misaligned_indices.forEach(function (n) { misaligned[Number(n)] = true; });
-  }
-
-  var rubricsSource = zhArr && enArr ? 'both' : zhArr ? 'zh' : enArr ? 'en' : 'none';
-  var count = Math.max(zhArr ? zhArr.length : 0, enArr ? enArr.length : 0);
-  if (zhArr && enArr && zhArr.length !== enArr.length) {
-    issues.push('rubrics count mismatch — 中文 ' + zhArr.length + ' vs ENG ' + enArr.length +
-                ' (matched by position, the tail has one language only)');
-  }
-
-  var rubrics = [];
-  for (var i = 0; i < count; i++) {
-    var z = zhArr ? zhArr[i] : null;
-    var e = enArr ? enArr[i] : null;
-    // Both sources carry the complete object; prefer 中文 for structure.
-    var s = z || e || {};
+function buildRubrics(step3) {
+  var arr = (step3 && Array.isArray(step3.rubrics)) ? step3.rubrics : [];
+  return arr.map(function (s) {
+    s = s || {};
     var w = Number(s.weight);
-    rubrics.push({
-      requirement: {
-        zh: z && z.requirement != null ? String(z.requirement) : '',
-        en: e && e.requirement != null ? String(e.requirement) : ''
-      },
+    return {
+      requirement: str(s.requirement),
+      importance: str(s.importance),
+      dimension: str(s.dimension),
       weight: Number.isFinite(w) ? w : null,
       band: bandFor(w),
-      dimension: s.dimension == null ? '' : String(s.dimension),
-      source: Array.isArray(s.source) ? s.source : (s.source ? [String(s.source)] : []),
       badResponseMeets: s.bad_response_meets,
-      misaligned: !!misaligned[i + MISALIGNED_BASE]
-    });
-  }
-
-  /* ── ENG-only, case level ─────────────────────────────────────────── */
-  function fromStep3(key) {
-    if (!step3) return null;
-    var v = step3[key];
-    return (v == null || v === '') ? null : v;
-  }
-  var header = {
-    decision:         fromStep3('decision'),
-    failureType:      fromStep3('failure_type'),
-    targetCapability: fromStep3('target_capability'),
-    aligned:          step4 && step4.aligned !== undefined ? step4.aligned : null,
-    severity:         step4 && step4.severity !== undefined ? step4.severity : null
-  };
-
-  /* ── judge reasons ────────────────────────────────────────────────── */
-  var jrZhRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.zh, chunks);
-  var jrEnRaw = joinChunks(row, TRANSLATION_MAP.judge_reasons.en, chunks);
-  var jrZh = safeJSON(jrZhRaw, TRANSLATION_MAP.judge_reasons.zh, issues);
-  var jrEn = safeJSON(jrEnRaw, TRANSLATION_MAP.judge_reasons.en, issues);
-  var jrZhArr = Array.isArray(jrZh) ? jrZh : null;
-  var jrEnArr = Array.isArray(jrEn) ? jrEn : null;
-  var judgeReasons = null;
-  var base = jrZhArr || jrEnArr;
-  if (base) {
-    judgeReasons = base.map(function (item, idx) {
-      var z = jrZhArr ? jrZhArr[idx] : null;
-      var en = jrEnArr ? jrEnArr[idx] : null;
-      var src = z || en || {};
-      return {
-        source: src.source == null ? '' : String(src.source),
-        turnIndex: src.turn_index,                 // plain label — never linked to a split turn
-        hasNegativeFeedback: src.has_negative_feedback,
-        reason: {
-          zh: z && z.reason != null ? String(z.reason) : '',
-          en: en && en.reason != null ? String(en.reason) : ''
-        }
-      };
-    });
-  }
-
-  var other = {};
-  OTHER_FIELDS.forEach(function (pair) {
-    var v = row[pair[1]];
-    other[pair[0]] = v == null ? '' : String(v);
+      source: Array.isArray(s.source) ? s.source.map(str) : (isPresent(s.source) ? [str(s.source)] : [])
+    };
   });
+}
+
+/* One JSONL line → one case. A line that will not parse still becomes a case:
+   selectable, labelled by line number, showing the raw text and an inline
+   error. It is never silently dropped. */
+function buildCase(line, lineNumber, issues) {
+  var obj = null, parseError = null;
+  try {
+    obj = JSON.parse(line);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      throw new Error('line is not a JSON object');
+    }
+  } catch (e) {
+    parseError = e.message;
+    issues.push('line ' + lineNumber + ' — ' + e.message + ', case unavailable');
+    return {
+      lineNumber: lineNumber, raw: null, rawLine: line, parseError: parseError,
+      encChatId: '', key: 'line:' + lineNumber, langCode: '', problemTurnIndex: null,
+      conversation: { blocks: [], turns: [], preamble: [] }, trMsg: null,
+      rubrics: [], rubricsTr: [], hasTr: false, agent: null
+    };
+  }
+
+  var encChatId = str(obj[COL.encChatId]).trim();
+  if (!encChatId) {
+    issues.push('line ' + lineNumber + ' — no enc_chat_id, cannot match Agent A/B');
+  }
+
+  var pti = Number(obj.problem_turn_index);
+  var conv = buildConversation(obj.messages, issues, 'line ' + lineNumber);
+
+  if (Number.isFinite(pti) && !conv.turns[pti - 1]) {
+    // Never guess-attach: a confident link to the wrong turn is worse than none.
+    issues.push('line ' + lineNumber + ' — problem_turn_index ' + pti +
+                ' resolves to no turn (' + conv.turns.length + ' turns), marker not rendered');
+  }
+
+  var trMsg = indexTranslatedMessages(obj.messages_translated);
+  if (trMsg) {
+    if (trMsg.anyMissingId) {
+      issues.push('line ' + lineNumber + ' — some messages_translated entries have no message_id, ' +
+                  'those messages fall back to the original');
+    }
+    if (Array.isArray(obj.messages) && obj.messages.length !== trMsg.list.length) {
+      issues.push('line ' + lineNumber + ' — messages_translated has ' + trMsg.list.length +
+                  ' entries against ' + obj.messages.length + ', matched by message_id');
+    }
+  }
+
+  var hasTr = TRANSLATABLE.some(function (k) { return isPresent(obj[k + '_translated']); });
 
   return {
-    id: id,
-    rowNumber: rowNumber,
-    encChatId: row[COL.encChatId] == null ? '' : String(row[COL.encChatId]),
-    langCode: row[COL.langCode] == null ? '' : String(row[COL.langCode]),
-    panels: panels,
-    header: header,
-    rubrics: rubrics,
-    rubricsSource: rubricsSource,
-    rubricsRaw: rubricsRaw,
-    judgeReasons: judgeReasons,
-    judgeReasonsRaw: jrZhRaw || jrEnRaw,
-    agentA: {
-      codes:   row[COL.agentACodes]   == null ? '' : String(row[COL.agentACodes]),
-      remarks: row[COL.agentARemarks] == null ? '' : String(row[COL.agentARemarks])
-    },
-    agentB: {
-      codes:   row[COL.agentBCodes]   == null ? '' : String(row[COL.agentBCodes]),
-      remarks: row[COL.agentBRemarks] == null ? '' : String(row[COL.agentBRemarks])
-    },
-    otherFields: other,
-    issues: issues
+    lineNumber: lineNumber,
+    raw: obj,
+    rawLine: line,
+    parseError: null,
+    encChatId: encChatId,
+    key: encChatId || ('line:' + lineNumber),
+    langCode: str(obj.prompt_msg_lang_code),
+    problemTurnIndex: Number.isFinite(pti) ? pti : null,
+    conversation: conv,
+    trMsg: trMsg,
+    rubrics: buildRubrics(obj.step3_rubrics_generation),
+    rubricsTr: buildRubrics(obj.step3_rubrics_generation_translated),
+    hasTr: hasTr,
+    agent: null            // filled by joinAgents()
   };
+}
+
+/* The resolver, applied at the TOP LEVEL only:
+     lang === 'en' ? obj[k + '_translated'] ?? obj[k] : obj[k]
+   plus the spec's fallback rule — a missing or empty translation falls back to
+   the original and reports it, so the caller can badge the panel. */
+function resolve(c, key, lang) {
+  var o = c.raw || {};
+  if (lang !== 'en' || !fileHasTranslations) return { value: o[key], fellBack: false };
+  var t = o[key + '_translated'];
+  if (isPresent(t)) return { value: t, fellBack: false };
+  return { value: o[key], fellBack: isPresent(o[key]) };
 }
 
 
@@ -726,53 +737,35 @@ function renderMarkdown(el, text) {
   } catch (e) { /* auto-render itself failed; the Markdown stands */ }
 }
 
-/* Opportunistic: matches → labelled turns, no match → one block.
-   Content is never dropped or reordered. */
-function splitTurns(text) {
-  var re = new RegExp(TURN_PATTERN.source, TURN_PATTERN.flags);
-  var marks = [], m;
-  while ((m = re.exec(text)) !== null) {
-    marks.push({ start: m.index, bodyStart: m.index + m[0].length, role: m[1] });
-    if (m.index === re.lastIndex) re.lastIndex++; // zero-length guard
-  }
-  if (!marks.length) return null;
-
-  var turns = [];
-  if (marks[0].start > 0) {
-    var pre = text.slice(0, marks[0].start);
-    if (pre.trim()) turns.push({ role: null, body: pre });
-  }
-  for (var i = 0; i < marks.length; i++) {
-    var end = (i + 1 < marks.length) ? marks[i + 1].start : text.length;
-    turns.push({ role: marks[i].role, body: text.slice(marks[i].bodyStart, end) });
-  }
-  return turns;
-}
-
 
 /* ══════════════════════════════════════════════════════════════════════════
    STATE
    Data is frozen after buildCase. Review edits go to the review tier keyed by
-   case id + row index, never onto a rubric object.
+   enc_chat_id + scope, never onto a rubric object.
    ══════════════════════════════════════════════════════════════════════════ */
 
 var cases = [];
+var agentsByChatId = {};        // enc_chat_id -> { caseId, codes/remarks per agent }
+var agentsFileName = '';
+var casesFileName = '';
+var fileHasTranslations = false;
+var loadIssues = [];
 var currentIndex = -1;
 var currentCase = null;
+
 function emptyReview() {
-  return { rows: {}, remarks: '', langReq: { on: false, note: '' }, set: { codes: [], issues: {} } };
+  return { rows: {}, set: { codes: [], issues: {} }, case: { codes: [], issues: {} }, remarks: '' };
 }
 
 var review = emptyReview();
-var rawFlags = {};        // panelId -> bool. Session only, per spec's UI-prefs list.
-var expandedRows = {};    // rowIndex -> bool. Session only.
-var renderCache = {};     // panelId|lang|raw -> HTML. Cleared on navigation.
+var rawFlags = {};        // panelId -> bool. Session only.
+var expandedMsgs = {};    // message key -> bool. Session only.
 
 var $ = function (sel) { return document.querySelector(sel); };
 var el = {
   prev: $('#prevCase'), next: $('#nextCase'),
   search: $('#caseSearch'), count: $('#caseCount'), list: $('#caseList'),
-  fileInput: $('#fileInput'), fileMeta: $('#fileMeta'),
+  casesInput: $('#casesInput'), agentsInput: $('#agentsInput'), fileMeta: $('#fileMeta'),
   globalZh: $('#globalZh'), globalEn: $('#globalEn'),
   collapseAll: $('#collapseAll'), theme: $('#themeToggle'),
   report: $('#loadReport'), reportTitle: $('#loadReportTitle'),
@@ -781,49 +774,53 @@ var el = {
   pinnedPrompt: $('#pinnedPrompt'), grip: $('#promptGrip'),
   empty: $('#emptyState'), caseBody: $('#caseBody'),
   panels: $('#panels'), agents: $('#agentPanes'), rubricsWrap: $('#rubricsWrap'),
+  step1: $('#step1Wrap'), judge: $('#judgeWrap'),
   outCodes: $('#outCodes'), outRemarks: $('#outRemarks'),
   copyCodes: $('#copyCodes'), copyRemarks: $('#copyRemarks'), copyGeneral: $('#copyGeneral'),
   okCodes: $('#okCodes'), okRemarks: $('#okRemarks'), okGeneral: $('#okGeneral'),
   general: $('#generalRemarks'),
-  langReqCheck: $('#langReqCheck'), langReqNote: $('#langReqNote'),
+  caseCodeBtn: $('#caseCodeBtn'), caseCodeLines: $('#caseCodeLines'),
   setCodeBtn: $('#setCodeBtn'), setCodeLines: $('#setCodeLines'),
-  clearCase: $('#clearCase'), clearAll: $('#clearAll'),
-  other: $('#otherFields'), otherList: $('#otherFieldsList'),
+  clearCase: $('#clearCase'), clearAll: $('#clearAll'), clearV1: $('#clearV1'),
   scroll: $('#scrollArea'), dropOverlay: $('#dropOverlay'),
   dialog: $('#confirmDialog'), dlgTitle: $('#confirmTitle'), dlgBody: $('#confirmBody'),
   dlgYes: $('#confirmYes'), dlgNo: $('#confirmNo'),
   help: $('#helpBtn'), helpDialog: $('#helpDialog'), helpClose: $('#helpClose')
 };
 
-function langReqState(r) {
-  var target = r || review;
-  if (!target.langReq || typeof target.langReq !== 'object') target.langReq = { on: false, note: '' };
-  return target.langReq;
-}
-
-/* The whole-rubrics selection has exactly a row's shape — same picker, same
-   one-box-per-code rule — so it shares rowState's normalization. */
-function setState(r) { return normalizeCodeSet(r || review, 'set'); }
-
 function panelLang(id) { return ui.panelLangs[id] === 'zh' ? 'zh' : 'en'; }  // ENG on first load
 function isCollapsed(id) { return !!ui.panelCollapsed[id]; }
-/* `issues` is keyed by error code (changed 2026-08-05). A pre-2026-08-05 row
-   stores it as a single string — deliberately discarded rather than migrated,
-   per specifications.md § Persistence. The codes on that row survive. */
-function rowState(idx) { return normalizeCodeSet(review.rows, idx); }
 
 function normalizeCodeSet(owner, key) {
   var r = owner[key];
-  if (!r || typeof r !== 'object') { r = owner[key] = { codes: [], issues: {} }; }
+  if (!r || typeof r !== 'object' || Array.isArray(r)) { r = owner[key] = { codes: [], issues: {} }; }
   if (!Array.isArray(r.codes)) r.codes = [];
   if (!r.issues || typeof r.issues !== 'object' || Array.isArray(r.issues)) r.issues = {};
   return r;
 }
 
-/* `SET_TARGET` stands where a row index stands, so one picker serves both. */
-var SET_TARGET = 'set';
+/* `case`, `set` and each member of `rows` have exactly the same shape, the same
+   rules and the same normalization, so one accessor serves all three scopes. */
 function targetState(target) {
-  return target === SET_TARGET ? setState() : rowState(target);
+  if (target === CASE_TARGET) return normalizeCodeSet(review, CASE_TARGET);
+  if (target === SET_TARGET) return normalizeCodeSet(review, SET_TARGET);
+  return normalizeCodeSet(review.rows, target);
+}
+
+/* The case scope gets its own five-code list; the other two share the eighteen. */
+function targetCodes(target) { return target === CASE_TARGET ? CASE_LEVEL_CODES : ERROR_CODES; }
+
+function targetLabel(target) {
+  return target === CASE_TARGET ? 'the case'
+       : target === SET_TARGET ? 'the whole rubric set'
+       : 'rubric R' + (target + 1);
+}
+
+/* The output label for a scope: `CASE:` / `ALL:` / `R<n>:`. */
+function scopePrefix(target) {
+  return target === CASE_TARGET ? 'CASE'
+       : target === SET_TARGET ? 'ALL'
+       : 'R' + (target + 1);
 }
 
 /* Text lives only under a currently-selected code. Called after every change to
@@ -867,25 +864,7 @@ function makePanel(spec, opts) {
   spacer.className = 'spacer';
   head.appendChild(spacer);
 
-  if (spec.lang) {
-    var seg = document.createElement('div');
-    seg.className = 'seg';
-    seg.setAttribute('role', 'group');
-    seg.setAttribute('aria-label', 'Language for ' + spec.title);
-    [['zh', '中文'], ['en', 'ENG']].forEach(function (pair) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = pair[1];
-      b.setAttribute('aria-pressed', String(panelLang(spec.id) === pair[0]));
-      if (opts.disableLang && opts.disableLang[pair[0]]) {
-        b.disabled = true;
-        b.title = opts.disableLang[pair[0]];
-      }
-      b.addEventListener('click', function () { setPanelLang(spec.id, pair[0]); });
-      seg.appendChild(b);
-    });
-    head.appendChild(seg);
-  }
+  if (spec.lang) head.appendChild(langSeg(spec.id, spec.title));
 
   if (spec.raw) {
     var rawSeg = document.createElement('div');
@@ -893,7 +872,7 @@ function makePanel(spec, opts) {
     var rb = document.createElement('button');
     rb.type = 'button';
     rb.textContent = 'raw';
-    rb.title = 'Show the unrendered joined source';
+    rb.title = 'Show the unrendered source';
     rb.setAttribute('aria-pressed', String(!!rawFlags[spec.id]));
     rb.addEventListener('click', function () {
       rawFlags[spec.id] = !rawFlags[spec.id];
@@ -920,6 +899,28 @@ function makePanel(spec, opts) {
   return panel;
 }
 
+/* Mixed language states across panels are allowed and deliberate — a Chinese
+   prompt beside an English criterion is how `Rubrics not in Chinese` is judged. */
+function langSeg(id, title) {
+  var seg = document.createElement('div');
+  seg.className = 'seg';
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', 'Language for ' + title);
+  [['zh', '中文'], ['en', 'ENG']].forEach(function (pair) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = pair[1];
+    b.setAttribute('aria-pressed', String(panelLang(id) === pair[0]));
+    if (!fileHasTranslations && pair[0] === 'en') {
+      b.disabled = true;
+      b.title = 'This file has no _translated keys.';
+    }
+    b.addEventListener('click', function () { setPanelLang(id, pair[0]); });
+    seg.appendChild(b);
+  });
+  return seg;
+}
+
 function toggleCollapse(id) {
   ui.panelCollapsed[id] = !ui.panelCollapsed[id];
   saveUI();
@@ -930,170 +931,6 @@ function setPanelLang(id, lang) {
   ui.panelLangs[id] = lang;
   saveUI();
   renderCase();
-}
-
-/* Chooses which language actually renders, and what to say about it.
-   A missing translation is data, not an exception. */
-function resolveText(field, id) {
-  var want = panelLang(id);
-  var out = { lang: want, text: '', badge: null, warn: null };
-
-  if (field.englishOnly) {
-    out.lang = 'en';
-    out.text = field.en;
-    return out;
-  }
-  if (want === 'en' && field.enMissing && !field.zhMissing) {
-    out.lang = 'zh';
-    out.text = field.zh;
-    out.badge = 'ENG unavailable — showing 中文';
-    return out;
-  }
-  if (want === 'zh' && field.zhMissing && !field.enMissing) {
-    out.lang = 'en';
-    out.text = field.en;
-    out.badge = '中文 unavailable — showing ENG';
-    return out;
-  }
-  out.text = want === 'zh' ? field.zh : field.en;
-  // Truncation never falls back — the English is shown with a loud warning,
-  // because silently rendering a response that stops mid-sentence would get a
-  // rubric marked Unmet Demands when the model satisfied it in the unseen tail.
-  if (out.lang === 'en' && field.enTruncated) {
-    out.warn = '⚠ English truncated at ' + EXCEL_CELL_LIMIT.toLocaleString() +
-               ' chars — switch to 中文 for the full text';
-  }
-  if (out.lang === 'zh' && field.zhTruncated) {
-    out.warn = '⚠ 中文 truncated at ' + EXCEL_CELL_LIMIT.toLocaleString() + ' chars — the tail is missing from the file';
-  }
-  return out;
-}
-
-function fillTextBody(body, spec, resolved) {
-  body.textContent = '';
-  if (resolved.warn) {
-    var w = document.createElement('div');
-    w.className = 'inline-warn';
-    w.textContent = resolved.warn;
-    body.appendChild(w);
-  }
-  if (!resolved.text.trim()) {
-    var e = document.createElement('p');
-    e.className = 'agent-empty';
-    e.textContent = '(empty)';
-    body.appendChild(e);
-    return;
-  }
-
-  var cacheKey = spec.id + '|' + resolved.lang + '|' + (rawFlags[spec.id] ? 'raw' : 'md');
-  var holder = document.createElement('div');
-
-  if (rawFlags[spec.id]) {
-    // Always the unsplit joined source.
-    var pre = document.createElement('pre');
-    pre.className = 'raw';
-    pre.textContent = resolved.text;
-    holder.appendChild(pre);
-  } else if (renderCache[cacheKey]) {
-    holder.innerHTML = renderCache[cacheKey];
-  } else {
-    var turns = spec.turns ? splitTurns(resolved.text) : null;
-    if (turns) {
-      turns.forEach(function (t) {
-        var d = document.createElement('div');
-        d.className = 'turn';
-        if (t.role) {
-          var r = document.createElement('div');
-          r.className = 'turn-role';
-          r.textContent = t.role;
-          d.appendChild(r);
-        }
-        var md = document.createElement('div');
-        md.className = 'md';
-        renderMarkdown(md, t.body);
-        d.appendChild(md);
-        holder.appendChild(d);
-      });
-    } else {
-      var md1 = document.createElement('div');
-      md1.className = 'md';
-      renderMarkdown(md1, resolved.text);
-      holder.appendChild(md1);
-    }
-    renderCache[cacheKey] = holder.innerHTML;
-  }
-  body.appendChild(holder);
-}
-
-function renderPinnedPrompt(c) {
-  var spec = { id: 'user_prompt', title: 'user_prompt', lang: true, raw: true, turns: false };
-  var field = c.panels.user_prompt;
-  var resolved = resolveText(field, spec.id);
-  var panel = makePanel(spec, { badge: resolved.badge });
-  fillTextBody(panel.__body, spec, resolved);
-  el.pinnedPrompt.textContent = '';
-  el.pinnedPrompt.appendChild(panel);
-  el.pinnedWrap.hidden = false;
-  el.grip.hidden = isCollapsed('user_prompt');
-}
-
-function renderJudgeReasons(c, body) {
-  body.textContent = '';
-  if (!c.judgeReasons) {
-    if (!c.judgeReasonsRaw.trim()) {
-      body.innerHTML = '<p class="agent-empty">(empty)</p>';
-      return;
-    }
-    // Context, never input — nothing downstream depends on it.
-    var err = document.createElement('div');
-    err.className = 'inline-error';
-    err.textContent = 'badcase_judge_reasons could not be parsed as JSON — raw cell text below.';
-    body.appendChild(err);
-    var pre = document.createElement('pre');
-    pre.className = 'raw';
-    pre.textContent = c.judgeReasonsRaw;
-    body.appendChild(pre);
-    return;
-  }
-
-  var lang = panelLang('judge_reasons');
-  var ul = document.createElement('ul');
-  ul.className = 'jr';
-  c.judgeReasons.forEach(function (r) {
-    var li = document.createElement('li');
-    var meta = document.createElement('div');
-    meta.className = 'meta';
-
-    if (r.turnIndex !== undefined && r.turnIndex !== null && r.turnIndex !== '') {
-      // Plain label. Deliberately not linked to a TURN_PATTERN split — upstream
-      // numbering and ours are not guaranteed to agree, and a confident link to
-      // the wrong turn is worse than no link.
-      meta.appendChild(chip('turn ' + r.turnIndex));
-    }
-    if (r.source) meta.appendChild(chip(r.source));
-    if (r.hasNegativeFeedback === true) meta.appendChild(chip('negative ✓'));
-    else if (r.hasNegativeFeedback === false) meta.appendChild(chip('negative ✗'));
-    li.appendChild(meta);
-
-    var text = lang === 'zh' ? r.reason.zh : r.reason.en;
-    var fellBack = false;
-    if (!text.trim()) {
-      text = lang === 'zh' ? r.reason.en : r.reason.zh;
-      fellBack = !!text.trim();
-    }
-    var md = document.createElement('div');
-    md.className = 'md';
-    renderMarkdown(md, text || '(no reason given)');
-    li.appendChild(md);
-    if (fellBack) {
-      var b = document.createElement('span');
-      b.className = 'badge-fallback';
-      b.textContent = (lang === 'zh' ? '中文' : 'ENG') + ' unavailable for this entry';
-      li.appendChild(b);
-    }
-    ul.appendChild(li);
-  });
-  body.appendChild(ul);
 }
 
 function chip(text, label) {
@@ -1108,6 +945,303 @@ function chip(text, label) {
   return s;
 }
 
+function emptyNote(text) {
+  var p = document.createElement('p');
+  p.className = 'agent-empty';
+  p.textContent = text || '(empty)';
+  return p;
+}
+
+function inlineNote(text, kind) {
+  var d = document.createElement('div');
+  d.className = kind === 'error' ? 'inline-error' : 'inline-warn';
+  d.textContent = text;
+  return d;
+}
+
+/* A plain text panel: `user_prompt` or `model_response`. */
+function fillTextPanel(body, id, text, extraNode) {
+  body.textContent = '';
+  if (extraNode) body.appendChild(extraNode);
+  if (!String(text).trim()) { body.appendChild(emptyNote()); return; }
+  if (rawFlags[id]) {
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = text;
+    body.appendChild(pre);
+    return;
+  }
+  var md = document.createElement('div');
+  md.className = 'md';
+  renderMarkdown(md, text);
+  body.appendChild(md);
+}
+
+/* `user_prompt` and `model_response` are expected to duplicate the problem
+   turn — both render anyway, because the point is to catch the case where they
+   DIFFER. Rendering both without checking would leave that to be spotted by eye
+   across two scroll positions, which defeats the reason for rendering both. */
+function problemTurnText(c, role, lang) {
+  var t = c.problemTurnIndex ? c.conversation.turns[c.problemTurnIndex - 1] : null;
+  if (!t) return null;
+  var list = role === 'assistant' ? t.assistant : t.user;
+  if (!list.length) return null;
+  // Compared in the SAME language the panel is showing — otherwise an English
+  // panel beside a Chinese thread would report a difference on every case.
+  return list.map(function (e) { return messageText(c, e, lang).text; }).join('\n\n');
+}
+
+function differsNote(c, text, role, lang) {
+  var against = problemTurnText(c, role, lang);
+  if (against === null) return null;
+  if (String(text).trim() === String(against).trim()) return null;
+  return inlineNote('⚠ differs from turn ' + c.problemTurnIndex);
+}
+
+function renderPinnedPrompt(c) {
+  var spec = { id: 'user_prompt', title: 'user_prompt', lang: true, raw: true };
+  var lang = panelLang(spec.id);
+  var r = resolve(c, 'user_prompt', lang);
+  var text = str(r.value);
+  var panel = makePanel(spec, { badge: r.fellBack ? 'ENG unavailable — showing original' : null });
+  fillTextPanel(panel.__body, spec.id, text, differsNote(c, text, 'user', lang));
+  el.pinnedPrompt.textContent = '';
+  el.pinnedPrompt.appendChild(panel);
+  el.pinnedWrap.hidden = false;
+  el.grip.hidden = isCollapsed(spec.id);
+}
+
+function renderPanels(c) {
+  el.panels.textContent = '';
+
+  PANELS.forEach(function (spec) {
+    if (spec.id === 'conversation') {
+      el.panels.appendChild(buildConversationPanel(c, spec));
+      return;
+    }
+    var lang = panelLang(spec.id);
+    var r = resolve(c, spec.id, lang);
+    var text = str(r.value);
+    var panel = makePanel(spec, { badge: r.fellBack ? 'ENG unavailable — showing original' : null });
+    fillTextPanel(panel.__body, spec.id, text, differsNote(c, text, 'assistant', lang));
+    el.panels.appendChild(panel);
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §6 THE CONVERSATION
+   Markup and class names follow context.template.html verbatim, so the CSS
+   designed against it transfers unchanged.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function buildConversationPanel(c, spec) {
+  var panel = makePanel(spec, {});
+  var body = panel.__body;
+  var conv = c.conversation;
+
+  if (!conv.blocks.length && !conv.preamble.length) {
+    body.appendChild(emptyNote('(no messages)'));
+    return panel;
+  }
+
+  var lang = panelLang(spec.id);
+  var fellBack = { any: false };
+
+  if (conv.preamble.length) {
+    // No user message, setup rather than dialogue, usually long boilerplate.
+    var det = document.createElement('details');
+    det.className = 'preamble';
+    var sum = document.createElement('summary');
+    sum.textContent = 'system prompt' + (conv.preamble.length > 1 ? ' (' + conv.preamble.length + ')' : '');
+    det.appendChild(sum);
+    conv.preamble.forEach(function (entry) {
+      det.appendChild(buildMessageCard(c, entry, 'system', lang, false, fellBack));
+    });
+    body.appendChild(det);
+  }
+
+  var list = document.createElement('div');
+  list.className = 'conversation-list';
+
+  conv.blocks.forEach(function (b) {
+    if (b.kind === 'system') {
+      // A system message appearing mid-thread is a real event, shown as one:
+      // a full-width card, no axis, visually distinct from both other roles.
+      list.appendChild(buildMessageCard(c, b.messages[0], 'system', lang, false, fellBack));
+      return;
+    }
+    list.appendChild(buildTurn(c, b, lang, fellBack));
+  });
+
+  body.appendChild(list);
+
+  if (fellBack.any) {
+    var badge = document.createElement('span');
+    badge.className = 'badge-fallback';
+    badge.textContent = 'some messages have no translation';
+    panel.querySelector('header .spacer').before(badge);
+  }
+  return panel;
+}
+
+function buildTurn(c, turn, lang, fellBack) {
+  var isProblem = c.problemTurnIndex === turn.number;
+  var wrap = document.createElement('div');
+  wrap.className = 'conversation-turn' + (isProblem ? ' is-problem-turn' : '');
+
+  // Roles are demarked three ways at once: card class, the role label, and
+  // structural position — user above the axis, assistant below it.
+  turn.user.forEach(function (entry) {
+    wrap.appendChild(buildMessageCard(c, entry, 'user', lang, isProblem, fellBack));
+  });
+
+  var axis = document.createElement('div');
+  axis.className = 'turn-axis';
+  var num = document.createElement('span');
+  num.className = 'turn-number';
+  num.textContent = String(turn.number);
+  axis.appendChild(num);
+  if (isProblem) {
+    var lbl = document.createElement('span');
+    lbl.className = 'problem-label is-decided';
+    lbl.textContent = 'problem turn';
+    axis.appendChild(lbl);
+  }
+  wrap.appendChild(axis);
+
+  var stack = document.createElement('div');
+  stack.className = 'assistant-stack';
+  // Several assistant messages may share one message_id: they stack in file
+  // order as separate cards. That is what the stack is for.
+  turn.assistant.forEach(function (entry) {
+    stack.appendChild(buildMessageCard(c, entry, 'assistant', lang, isProblem, fellBack));
+  });
+  wrap.appendChild(stack);
+
+  return wrap;
+}
+
+/* One message's text in one language. Pure: the (message_id, role) ordinal was
+   fixed at ingest, so this can be called for rendering and for the
+   `differs from turn N` comparison without the two interfering. */
+function messageText(c, entry, lang) {
+  var original = msgText(entry.msg);
+  if (lang !== 'en' || !fileHasTranslations || !c.trMsg) {
+    return { text: original, missingTr: false };
+  }
+  var arr = c.trMsg.byKey[str(entry.msg.message_id) + '|' + entry.role];
+  var t = (arr && arr[entry.ordinal] !== undefined) ? arr[entry.ordinal] : null;
+  if (t === null) {
+    // Recoverable fallback: same position, same role.
+    var pos = c.trMsg.list[entry.index];
+    if (pos && str(pos.role) === entry.role) t = msgText(pos);
+  }
+  if (t !== null && String(t).trim()) return { text: t, missingTr: false };
+  return { text: original, missingTr: true };
+}
+
+function buildMessageCard(c, entry, role, lang, isProblemTurn, fellBack) {
+  var card = document.createElement('article');
+  card.className = 'message-card ' + role +
+                   (isProblemTurn && role === 'assistant' ? ' is-problem' : '');
+
+  var resolved = messageText(c, entry, lang);
+  var text = resolved.text;
+  var missingTr = resolved.missingTr;
+  if (missingTr) fellBack.any = true;
+
+  var head = document.createElement('div');
+  head.className = 'message-role';
+  var strong = document.createElement('strong');
+  strong.textContent = role;
+  head.appendChild(strong);
+  var meta = document.createElement('span');
+  meta.className = 'message-meta';
+  if (isProblemTurn && role === 'assistant') {
+    var pb = document.createElement('span');
+    pb.className = 'problem-badge';
+    pb.textContent = 'problem';
+    meta.appendChild(pb);
+  }
+  if (missingTr) {
+    var fb = document.createElement('span');
+    fb.className = 'badge-fallback';
+    fb.textContent = 'original';
+    fb.title = 'No translation matched this message; showing the original.';
+    meta.appendChild(fb);
+  }
+  head.appendChild(meta);
+  card.appendChild(head);
+
+  var bodyWrap = document.createElement('div');
+  bodyWrap.className = 'message-body';
+
+  if (rawFlags.conversation) {
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = text;
+    bodyWrap.appendChild(pre);
+  } else {
+    var md = document.createElement('div');
+    md.className = 'markdown-content md';
+    renderMarkdown(md, text || '(empty)');
+    bodyWrap.appendChild(md);
+  }
+  card.appendChild(bodyWrap);
+
+  // The problem turn is exempt from the clamp and always renders in full.
+  if (!isProblemTurn) {
+    var mkey = c.key + '|' + entry.index;
+    if (!expandedMsgs[mkey]) {
+      bodyWrap.classList.add('is-clamped');
+      var more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'showmore';
+      more.textContent = 'show more';
+      more.setAttribute('aria-label', 'Show the full ' + role + ' message');
+      more.addEventListener('click', function () {
+        expandedMsgs[mkey] = true;
+        bodyWrap.classList.remove('is-clamped');
+        more.remove();
+      });
+      card.appendChild(more);
+      // Only worth a control if there is something hidden.
+      requestAnimationFrame(function () {
+        if (bodyWrap.scrollHeight <= bodyWrap.clientHeight + 2) {
+          bodyWrap.classList.remove('is-clamped');
+          more.remove();
+        }
+      });
+    }
+  }
+  return card;
+}
+
+/* Expands the panel first when collapsed — otherwise the control does nothing
+   visible. No auto-scroll anywhere else: changing case never moves the viewport. */
+function jumpToProblemTurn() {
+  if (!currentCase || !currentCase.problemTurnIndex) return;
+  if (isCollapsed('conversation')) {
+    ui.panelCollapsed.conversation = false;
+    saveUI();
+    renderCase();
+  }
+  var node = el.panels.querySelector('.conversation-turn.is-problem-turn');
+  if (node) node.scrollIntoView({ block: 'start' });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §7 HEADER STRIP + AGENT PANES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function caseLabel(c) {
+  if (c.agent && c.agent.caseId) return c.agent.caseId;
+  if (c.encChatId) return c.encChatId;
+  return '(line ' + c.lineNumber + ')';
+}
+
 function renderHeaderStrip(c) {
   var h = el.headerStrip;
   h.textContent = '';
@@ -1116,83 +1250,70 @@ function renderHeaderStrip(c) {
   l1.className = 'line';
   var id = document.createElement('span');
   id.className = 'caseid';
-  id.textContent = c.id;
+  id.textContent = caseLabel(c);
   l1.appendChild(id);
-  l1.appendChild(chip(String(c.rowNumber) + ' of ' + cases.length, 'row'));
+  l1.appendChild(chip(c.lineNumber + ' of ' + cases.length, 'line'));
   if (c.encChatId) l1.appendChild(chip(c.encChatId, 'enc_chat_id'));
   if (c.langCode) l1.appendChild(chip(c.langCode, 'lang'));
+  if (c.problemTurnIndex) {
+    l1.appendChild(chip(String(c.problemTurnIndex), 'problem turn'));
+    var jump = document.createElement('button');
+    jump.type = 'button';
+    jump.className = 'btn';
+    jump.textContent = '↓ turn ' + c.problemTurnIndex;
+    jump.setAttribute('aria-label', 'Scroll the problem turn into view');
+    jump.addEventListener('click', jumpToProblemTurn);
+    l1.appendChild(jump);
+  }
   h.appendChild(l1);
 
-  var hd = c.header;
-  var l2 = document.createElement('div');
-  l2.className = 'line';
-  if (hd.decision != null)         l2.appendChild(chip(String(hd.decision), 'decision'));
-  if (hd.failureType != null)      l2.appendChild(chip(String(hd.failureType), 'failure_type'));
-  if (hd.targetCapability != null) l2.appendChild(chip(String(hd.targetCapability), 'target_capability'));
-  if (hd.aligned !== null)         l2.appendChild(chip(hd.aligned ? '✓' : '✗', 'aligned'));
-  if (hd.severity !== null)        l2.appendChild(chip(String(hd.severity), 'severity'));
-  if (l2.childNodes.length) h.appendChild(l2);
+  // One note in the header, not a badge on every panel.
+  if (!fileHasTranslations) {
+    var l2 = document.createElement('div');
+    l2.className = 'line';
+    var note = document.createElement('span');
+    note.className = 'ro-note';
+    note.textContent = 'No _translated keys anywhere in this file — every panel renders the original ' +
+                       'and the ENG toggles are disabled.';
+    l2.appendChild(note);
+    h.appendChild(l2);
+  }
 
   h.hidden = false;
 }
 
-function renderPanels(c) {
-  el.panels.textContent = '';
-  PANELS.forEach(function (spec) {
-    var field = c.panels[spec.id];
-
-    if (spec.id === 'judge_reasons') {
-      var jrPanel = makePanel(spec, {});
-      renderJudgeReasons(c, jrPanel.__body);
-      el.panels.appendChild(jrPanel);
-      return;
-    }
-
-    if (field.englishOnly && field.enMissing) return; // vanishes with a bad step3 blob
-
-    var resolved = resolveText(field, spec.id);
-    var opts = { badge: resolved.badge };
-    if (spec.lang) {
-      opts.disableLang = {};
-      if (field.zhMissing) opts.disableLang.zh = 'No 中文 source for this field in the file.';
-      if (field.enMissing) opts.disableLang.en = 'No English translation for this field in the file.';
-    }
-    var panel = makePanel(spec, opts);
-    fillTextBody(panel.__body, spec, resolved);
-    el.panels.appendChild(panel);
-  });
-}
-
-/* Agent panes: verbatim, read-only, never parsed. The highlight below is
-   string matching for display emphasis only and never reaches the output. */
+/* Agent panes: verbatim, read-only, never parsed. The highlight below is string
+   matching for display emphasis only and never reaches the output. It degrades
+   gracefully against v1 code names — an unmatched string simply gets no mark. */
 function agentTokens(text) {
   return String(text).split(/[\n;,]+/).map(function (t) { return t.trim(); }).filter(Boolean);
 }
 
 function renderAgentPanes(c) {
   el.agents.textContent = '';
-  var aTok = agentTokens(c.agentA.codes);
-  var bTok = agentTokens(c.agentB.codes);
+  var a = (c.agent && c.agent.a) || { codes: '', remarks: '' };
+  var b = (c.agent && c.agent.b) || { codes: '', remarks: '' };
+
+  var aTok = agentTokens(a.codes), bTok = agentTokens(b.codes);
   var aSet = {}, bSet = {};
   aTok.forEach(function (t) { aSet[t.toLowerCase()] = true; });
   bTok.forEach(function (t) { bSet[t.toLowerCase()] = true; });
 
-  [['Agent A', c.agentA, aTok, bSet], ['Agent B', c.agentB, bTok, aSet]].forEach(function (spec) {
+  [['Agent A', a, aTok, bSet], ['Agent B', b, bTok, aSet]].forEach(function (spec) {
     var name = spec[0], data = spec[1], tokens = spec[2], otherSet = spec[3];
 
     var panel = document.createElement('section');
     panel.className = 'panel';
     var head = document.createElement('header');
     var t = document.createElement('span');
-    t.className = 'title';
-    t.style.cursor = 'default';
+    t.className = 'title static';
     t.textContent = name;
     head.appendChild(t);
     var sp = document.createElement('span');
     sp.className = 'spacer';
     head.appendChild(sp);
     var note = document.createElement('span');
-    note.className = 'ro-note';   /* styled in app.css; was inline + --text-muted */
+    note.className = 'ro-note';
     note.textContent = 'verbatim · read-only';
     head.appendChild(note);
     panel.appendChild(head);
@@ -1200,37 +1321,42 @@ function renderAgentPanes(c) {
     var body = document.createElement('div');
     body.className = 'body';
 
-    var f1 = document.createElement('div');
-    f1.className = 'agent-field';
-    f1.innerHTML = '<div class="label">codes</div>';
-    var v1 = document.createElement('div');
-    v1.className = 'value';
-    if (!data.codes.trim()) {
-      v1.innerHTML = '<span class="agent-empty">(none)</span>';
-    } else if (tokens.length) {
-      // Rebuild the cell verbatim, wrapping only the tokens the other agent lacks.
-      var html = escapeHtml(data.codes);
-      tokens.forEach(function (tok) {
-        if (otherSet[tok.toLowerCase()]) return;
-        var esc = escapeHtml(tok);
-        html = html.split(esc).join('<span class="uniq" title="Not present in the other agent\'s codes">' + esc + '</span>');
-      });
-      v1.innerHTML = html;
-    } else {
-      v1.textContent = data.codes;
+    if (!c.agent) {
+      body.appendChild(emptyNote(agentsFileName
+        ? 'No row in ' + agentsFileName + ' matched this case’s enc_chat_id.'
+        : 'No Agent A / B CSV loaded — drop one on this window to fill these panes.'));
+      panel.appendChild(body);
+      el.agents.appendChild(panel);
+      return;
     }
-    f1.appendChild(v1);
-    body.appendChild(f1);
 
-    var f2 = document.createElement('div');
-    f2.className = 'agent-field';
-    f2.innerHTML = '<div class="label">remarks</div>';
-    var v2 = document.createElement('div');
-    v2.className = 'value';
-    if (!data.remarks.trim()) v2.innerHTML = '<span class="agent-empty">(none)</span>';
-    else v2.textContent = data.remarks;
-    f2.appendChild(v2);
-    body.appendChild(f2);
+    [['codes', data.codes, true], ['remarks', data.remarks, false]].forEach(function (f) {
+      var wrap = document.createElement('div');
+      wrap.className = 'agent-field';
+      var lab = document.createElement('div');
+      lab.className = 'label';
+      lab.textContent = f[0];
+      wrap.appendChild(lab);
+      var v = document.createElement('div');
+      v.className = 'value';
+      if (!String(f[1]).trim()) {
+        v.innerHTML = '<span class="agent-empty">(none)</span>';
+      } else if (f[2] && tokens.length) {
+        // Rebuild the cell verbatim, wrapping only the tokens the other lacks.
+        var html = escapeHtml(f[1]);
+        tokens.forEach(function (tok) {
+          if (otherSet[tok.toLowerCase()]) return;
+          var esc = escapeHtml(tok);
+          html = html.split(esc).join(
+            '<span class="uniq" title="Not present in the other agent’s codes">' + esc + '</span>');
+        });
+        v.innerHTML = html;
+      } else {
+        v.textContent = f[1];
+      }
+      wrap.appendChild(v);
+      body.appendChild(wrap);
+    });
 
     panel.appendChild(body);
     el.agents.appendChild(panel);
@@ -1239,60 +1365,99 @@ function renderAgentPanes(c) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   §6 RUBRICS TABLE
+   §8 RUBRICS TABLE
    ══════════════════════════════════════════════════════════════════════════ */
 
-var DEFAULT_COLS = [6, 40, 10, 22, 22];
-var COL_LABELS = ['id', 'criterion', 'weight', 'error code', 'issues to fix'];
-var MIN_COL = 5;
-
-function colWidths() {
+function storedWidths() {
   var w = ui.colWidths;
-  if (!Array.isArray(w) || w.length !== 5 || w.some(function (n) { return !Number.isFinite(n); })) {
-    return DEFAULT_COLS.slice();
-  }
-  return w.slice();
+  var out = {};
+  RUBRIC_COLS.forEach(function (col) {
+    var v = w && Number(w[col.key]);
+    out[col.key] = Number.isFinite(v) && v > 0 ? v : col.w;
+  });
+  return out;
+}
+
+function visibleCols() {
+  return RUBRIC_COLS.filter(function (col) { return !col.extra || ui.extraColumns; });
+}
+
+/* Widths are stored per column name in their own units; the visible subset is
+   normalized to 100% here, so hiding a column never rewrites a stored width. */
+function normalizedWidths() {
+  var raw = storedWidths();
+  var vis = visibleCols();
+  var sum = vis.reduce(function (n, col) { return n + raw[col.key]; }, 0) || 1;
+  return vis.map(function (col) { return raw[col.key] * 100 / sum; });
 }
 
 function renderRubrics(c) {
   el.rubricsWrap.textContent = '';
 
-  if (c.rubricsSource === 'none') {
-    var err = document.createElement('div');
-    err.className = 'inline-error';
-    err.textContent = 'Neither `rubrics` (中文) nor `' + COL.step3 + '` (ENG) could be parsed — ' +
-                      'no rubrics table for this case. Raw cell text below.';
-    el.rubricsWrap.appendChild(err);
-    var pre = document.createElement('pre');
-    pre.className = 'raw';
-    pre.textContent = c.rubricsRaw || '(empty)';
-    el.rubricsWrap.appendChild(pre);
+  var bar = document.createElement('div');
+  bar.className = 'langbar';
+  var lbl = document.createElement('span');
+  lbl.className = 'langbar-label';
+  lbl.textContent = 'rubrics';
+  bar.appendChild(lbl);
+  bar.appendChild(langSeg('rubrics', 'the rubrics table'));
+
+  // One control, not two: independent toggles would be a menu for a two-item
+  // problem. Persisted as a UI preference.
+  var xb = document.createElement('button');
+  xb.type = 'button';
+  xb.className = 'btn';
+  xb.textContent = '⊞ extra columns';
+  xb.setAttribute('aria-pressed', String(!!ui.extraColumns));
+  xb.title = 'Show importance and source';
+  if (ui.extraColumns) xb.classList.add('is-on');
+  xb.addEventListener('click', function () {
+    ui.extraColumns = !ui.extraColumns;
+    saveUI();
+    renderRubrics(currentCase);
+  });
+  bar.appendChild(xb);
+  el.rubricsWrap.appendChild(bar);
+
+  var lang = panelLang('rubrics');
+  var rows = c.rubrics;
+  var trRows = c.rubricsTr;
+  var usingTr = lang === 'en' && fileHasTranslations && trRows.length > 0;
+  if (lang === 'en' && fileHasTranslations && !trRows.length && rows.length) {
+    el.rubricsWrap.appendChild(inlineNote('No step3_rubrics_generation_translated for this case — ' +
+                                          'showing the original rubrics.'));
+  }
+
+  if (!rows.length && !trRows.length) {
+    el.rubricsWrap.appendChild(inlineNote(
+      'No step3_rubrics_generation.rubrics array for this case — no rubrics table.', 'error'));
     return;
   }
 
   var table = document.createElement('div');
   table.className = 'rtable';
-  var widths = colWidths();
-  table.style.setProperty('--cols', widths.map(function (n) { return n + '%'; }).join(' '));
+  var vis = visibleCols();
+  var widths = normalizedWidths();
+  table.style.setProperty('--cols', widths.map(function (n) { return n.toFixed(3) + '%'; }).join(' '));
 
-  /* header + resizers */
   var head = document.createElement('div');
   head.className = 'rhead';
-  COL_LABELS.forEach(function (l) {
+  vis.forEach(function (col) {
     var s = document.createElement('span');
-    s.textContent = l;
+    s.textContent = col.label;
     head.appendChild(s);
   });
+
   var resizers = document.createElement('div');
   resizers.className = 'resizers';
   var acc = 0;
-  for (var i = 0; i < 4; i++) {
+  for (var i = 0; i < vis.length - 1; i++) {
     acc += widths[i];
     var r = document.createElement('button');
     r.type = 'button';
     r.className = 'resizer';
     r.style.left = acc + '%';
-    r.setAttribute('aria-label', 'Resize the ' + COL_LABELS[i] + ' column');
+    r.setAttribute('aria-label', 'Resize the ' + vis[i].label + ' column');
     r.dataset.edge = String(i);
     resizers.appendChild(r);
   }
@@ -1300,173 +1465,121 @@ function renderRubrics(c) {
   table.appendChild(head);
   wireResizers(table, resizers);
 
-  /* language for the criterion column */
-  var critLang = panelLang('rubrics');
-  var langBar = document.createElement('div');
-  langBar.className = 'langbar';          /* was inline styles; see app.css */
-  var lbl = document.createElement('span');
-  lbl.className = 'langbar-label';
-  lbl.textContent = 'criterion language';
-  langBar.appendChild(lbl);
-
-  var seg = document.createElement('div');
-  seg.className = 'seg';
-  seg.setAttribute('role', 'group');
-  seg.setAttribute('aria-label', 'Language for the criterion column');
-  [['zh', '中文'], ['en', 'ENG']].forEach(function (pair) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = pair[1];
-    b.setAttribute('aria-pressed', String(critLang === pair[0]));
-    if (pair[0] === 'zh' && c.rubricsSource === 'en') {
-      b.disabled = true;
-      b.title = '`rubrics` (中文) could not be parsed for this case.';
-    }
-    if (pair[0] === 'en' && c.rubricsSource === 'zh') {
-      b.disabled = true;
-      b.title = '`' + COL.step3 + '` (ENG) could not be parsed for this case.';
-    }
-    b.addEventListener('click', function () { setPanelLang('rubrics', pair[0]); });
-    seg.appendChild(b);
-  });
-  langBar.appendChild(seg);
-
-  if (c.rubricsSource !== 'both') {
-    var badge = document.createElement('span');
-    badge.className = 'badge-fallback';
-    badge.textContent = c.rubricsSource === 'zh'
-      ? 'ENG unavailable — table from `rubrics` (中文)'
-      : '中文 unavailable — table from the ENG blob';
-    langBar.appendChild(badge);
-  }
-  el.rubricsWrap.appendChild(langBar);
-
-  /* rows */
   var body = document.createElement('div');
   body.className = 'rbody';
-  c.rubrics.forEach(function (r, idx) {
-    body.appendChild(buildRubricRow(c, r, idx, critLang));
-    if (expandedRows[idx]) body.appendChild(buildRubricExpander(r));
-  });
+  var n = Math.max(rows.length, usingTr ? trRows.length : 0);
+  for (var k = 0; k < n; k++) {
+    // The translated rubrics are matched by ARRAY POSITION.
+    body.appendChild(buildRubricRow(rows[k] || {}, usingTr ? trRows[k] : null, k, vis));
+  }
   table.appendChild(body);
   el.rubricsWrap.appendChild(table);
 }
 
-function buildRubricRow(c, r, idx, critLang) {
-  var st = rowState(idx);
-  var codes = sortCodes(st.codes);
+function cell(className, label) {
+  var d = document.createElement('div');
+  d.className = className;
+  if (label) d.dataset.label = label;
+  return d;
+}
 
-  /* One grid line per selected code; a rubric with none still occupies one.
-     id / criterion / weight are rendered once and span all of them. */
+function buildRubricRow(r, tr, idx, vis) {
+  var st = targetState(idx);
+  var codes = sortCodes(st.codes);
   var lines = Math.max(1, codes.length);
+
   var row = document.createElement('div');
-  row.className = 'rrow' + (r.misaligned ? ' misaligned' : '');
+  row.className = 'rrow';
   row.dataset.idx = String(idx);
   row.style.setProperty('--lines', String(lines));
-  if (r.misaligned) row.title = 'The upstream alignment check listed this rubric in misaligned_indices.';
 
-  /* id + expander + row clear */
-  var cId = document.createElement('div');
-  cId.className = 'c-id';
-  cId.dataset.label = 'id';
-  var exp = document.createElement('button');
-  exp.type = 'button';
-  exp.className = 'expander';
-  exp.textContent = (expandedRows[idx] ? '▾ ' : '▸ ') + 'R' + (idx + 1);
-  exp.setAttribute('aria-expanded', String(!!expandedRows[idx]));
-  exp.setAttribute('aria-label', 'Details for rubric R' + (idx + 1));
-  exp.addEventListener('click', function () {
-    expandedRows[idx] = !expandedRows[idx];
-    renderRubrics(currentCase);
+  var view = tr || r;   // per-position translation of the whole rubric object
+
+  vis.forEach(function (col) {
+    if (col.key === 'code' || col.key === 'issues') return;   // built per line below
+    var c = cell('c-' + col.key + ' rspan', col.label);
+
+    if (col.key === 'num') {
+      var tag = document.createElement('span');
+      tag.className = 'rnum';
+      tag.textContent = 'R' + (idx + 1);
+      c.appendChild(tag);
+      var clr = document.createElement('button');
+      clr.type = 'button';
+      clr.className = 'rowclear';
+      clr.textContent = '×';
+      clr.title = 'Clear every code and all text for this rubric';
+      clr.setAttribute('aria-label', 'Clear all codes and issues text for rubric R' + (idx + 1));
+      clr.addEventListener('click', function () {
+        closeCodeMenu(true);
+        review.rows[idx] = { codes: [], issues: {} };
+        saveReviewNow(currentCase.key, review);
+        renderRubrics(currentCase);
+        refreshOutput();
+      });
+      c.appendChild(clr);
+
+    } else if (col.key === 'req') {
+      // Read-only. Never edited, stored, or copied out by the tool.
+      c.classList.add('md');
+      renderMarkdown(c, str(view.requirement) || '(empty)');
+
+    } else if (col.key === 'imp') {
+      // The stored string, verbatim. An independent metric — never compared
+      // against the weight band beside it.
+      c.textContent = str(view.importance) || '—';
+
+    } else if (col.key === 'dim') {
+      c.textContent = str(view.dimension) || '—';
+
+    } else if (col.key === 'weight') {
+      var wb = document.createElement('span');
+      wb.className = 'badge' + (r.weight !== null && r.weight < 0 ? ' is-pitfall' : '');
+      wb.textContent = r.weight === null ? '—'
+                     : r.band ? (r.weight + ' · ' + r.band) : String(r.weight);
+      c.appendChild(wb);
+
+    } else if (col.key === 'meets') {
+      // Its literal value, untransformed. Not a glyph.
+      c.textContent = r.badResponseMeets === undefined || r.badResponseMeets === null
+        ? '—' : String(r.badResponseMeets);
+      c.classList.add('mono');
+
+    } else if (col.key === 'src') {
+      var src = (view.source && view.source.length) ? view.source : r.source;
+      if (!src || !src.length) c.textContent = '—';
+      else src.forEach(function (s) { c.appendChild(chip(s)); });
+    }
+    row.appendChild(c);
   });
-  cId.appendChild(exp);
-
-  /* The tint alone cannot carry "misaligned" — colour is never the only signal
-     (uiux reference §5), and a title attribute is not reachable by keyboard. */
-  if (r.misaligned) {
-    var mis = document.createElement('span');
-    mis.className = 'mis-flag';
-    mis.textContent = '⚠ misaligned';
-    cId.appendChild(mis);
-  }
-
-  var clr = document.createElement('button');
-  clr.type = 'button';
-  clr.className = 'rowclear';
-  clr.textContent = '×';
-  clr.title = 'Clear every code and all text for this rubric';
-  clr.setAttribute('aria-label', 'Clear all codes and issues text for rubric R' + (idx + 1));
-  clr.addEventListener('click', function () {
-    closeCodeMenu(true);
-    review.rows[idx] = { codes: [], issues: {} };
-    saveReviewNow(currentCase.id, review);
-    renderRubrics(currentCase);
-    refreshOutput();
-  });
-  cId.appendChild(clr);
-  row.appendChild(cId);
-
-  /* criterion — read-only, never edited, stored, or copied out */
-  var cCrit = document.createElement('div');
-  cCrit.className = 'c-crit md';
-  cCrit.dataset.label = 'criterion';
-  var text = critLang === 'zh' ? r.requirement.zh : r.requirement.en;
-  var fellBack = false;
-  if (!text.trim()) {
-    text = critLang === 'zh' ? r.requirement.en : r.requirement.zh;
-    fellBack = !!text.trim();
-  }
-  renderMarkdown(cCrit, text || '(empty)');
-  if (fellBack) {
-    var fb = document.createElement('span');
-    fb.className = 'badge-fallback';
-    fb.textContent = (critLang === 'zh' ? '中文' : 'ENG') + ' unavailable for this criterion';
-    cCrit.appendChild(fb);
-  }
-  row.appendChild(cCrit);
-
-  /* weight — integer fused with its derived band */
-  var cW = document.createElement('div');
-  cW.className = 'c-weight';
-  cW.dataset.label = 'weight';
-  var wb = document.createElement('span');
-  wb.className = 'badge';
-  if (r.weight === null) wb.textContent = '—';
-  else wb.textContent = r.band ? (r.weight + ' · ' + r.band) : String(r.weight);
-  cW.appendChild(wb);
-  row.appendChild(cW);
 
   /* One (error code, issues) pair per selected code. Auto-placement fills the
-     two remaining columns line by line, skipping the cells the three spanning
-     cells above already occupy. A rubric with no codes keeps one empty line. */
+     two remaining columns line by line, skipping the cells the spanning cells
+     above already occupy. A rubric with no codes keeps one empty line and,
+     deliberately, no textarea at all. */
   if (!codes.length) {
     var only = buildCodeCell(idx, null);
     only.classList.add('line-first');
     row.appendChild(only);
-    var blank = document.createElement('div');
-    blank.className = 'c-issues line-first';
-    blank.dataset.label = 'issues to fix';
+    var blank = cell('c-issues line-first', 'issues to fix');
     row.appendChild(blank);
   } else {
-    codes.forEach(function (code, n) {
+    codes.forEach(function (code, i) {
       var cc = buildCodeCell(idx, code);
       var ci = buildIssuesCell(idx, code, st);
-      if (n === 0) { cc.classList.add('line-first'); ci.classList.add('line-first'); }
+      if (i === 0) { cc.classList.add('line-first'); ci.classList.add('line-first'); }
       row.appendChild(cc);
       row.appendChild(ci);
     });
   }
-
   return row;
 }
 
 /* One line's code cell. The chip opens the same whole-target checklist — the
-   lines are a view of the selected set, never a per-line picker. `target` is a
-   row index or SET_TARGET; the two behave identically from here down. */
+   lines are a VIEW of the selected set, never a per-line picker. `target` is a
+   row index, CASE_TARGET or SET_TARGET; all three behave identically here. */
 function buildCodeCell(target, code) {
-  var cell = document.createElement('div');
-  cell.className = 'c-code';
-  cell.dataset.label = 'error code';
+  var c = cell('c-code', 'error code');
   var who = targetLabel(target);
 
   var btn = document.createElement('button');
@@ -1488,7 +1601,7 @@ function buildCodeCell(target, code) {
     ev.stopPropagation();
     openCodeMenu(btn, target);
   });
-  cell.appendChild(btn);
+  c.appendChild(btn);
 
   if (code !== null) {
     var del = document.createElement('button');
@@ -1504,20 +1617,17 @@ function buildCodeCell(target, code) {
       var at = s.codes.indexOf(code);
       if (at !== -1) s.codes.splice(at, 1);
       pruneIssues(s);
-      saveReviewNow(currentCase.id, review);
+      saveReviewNow(currentCase.key, review);
       renderTarget(target);
       refreshOutput();
     });
-    cell.appendChild(del);
+    c.appendChild(del);
   }
-  return cell;
+  return c;
 }
 
 function buildIssuesCell(target, code, st) {
-  var cell = document.createElement('div');
-  cell.className = 'c-issues';
-  cell.dataset.label = 'issues to fix';
-
+  var c = cell('c-issues', 'issues to fix');
   var ta = document.createElement('textarea');
   ta.value = typeof st.issues[code] === 'string' ? st.issues[code] : '';
   ta.setAttribute('aria-label', 'Issues to fix for ' + targetLabel(target) + ', ' + code);
@@ -1525,40 +1635,17 @@ function buildIssuesCell(target, code, st) {
   ta.addEventListener('input', function () {
     targetState(target).issues[code] = ta.value;
     autoGrow(ta);
-    saveReview(currentCase.id, review);
+    saveReview(currentCase.key, review);
     refreshOutput();
   });
-  cell.appendChild(ta);
-
+  c.appendChild(ta);
   requestAnimationFrame(function () { autoGrow(ta); });
-  return cell;
+  return c;
 }
 
 function autoGrow(ta) {
   ta.style.height = 'auto';
   ta.style.height = Math.max(40, ta.scrollHeight) + 'px';   // matches .c-issues min-height
-}
-
-function buildRubricExpander(r) {
-  var d = document.createElement('div');
-  d.className = 'rexp';
-  var dl = document.createElement('dl');
-  function add(term, value) {
-    var dt = document.createElement('dt');
-    dt.textContent = term;
-    var dd = document.createElement('dd');
-    dd.textContent = value;
-    dl.appendChild(dt);
-    dl.appendChild(dd);
-  }
-  add('dimension', r.dimension || '—');
-  add('source', r.source.length ? r.source.join(' · ') : '—');
-  add('bad_response_meets',
-      r.badResponseMeets === true ? 'true — the bad response already satisfies this rubric, so it does not discriminate'
-    : r.badResponseMeets === false ? 'false'
-    : '—');
-  d.appendChild(dl);
-  return d;
 }
 
 /* The table is rebuilt on every render, so the window-level drag listeners are
@@ -1574,7 +1661,8 @@ function wireResizers(table, container) {
       edge: parseInt(handle.dataset.edge, 10),
       startX: ev.clientX,
       width: table.getBoundingClientRect().width,
-      widths: colWidths(),
+      cols: visibleCols(),
+      raw: storedWidths(),
       table: table,
       container: container
     };
@@ -1584,17 +1672,25 @@ function wireResizers(table, container) {
 
 function onColDragMove(ev) {
   if (!colDrag) return;
+  var cols = colDrag.cols;
+  var sum = cols.reduce(function (n, col) { return n + colDrag.raw[col.key]; }, 0) || 1;
+  var factor = sum / 100;                  // stored units per normalized %
   var deltaPct = ((ev.clientX - colDrag.startX) / colDrag.width) * 100;
-  var w = colDrag.widths.slice();
-  var a = colDrag.edge, b = colDrag.edge + 1;
-  var applied = Math.max(MIN_COL - w[a], Math.min(w[b] - MIN_COL, deltaPct));
+
+  var a = cols[colDrag.edge].key, b = cols[colDrag.edge + 1].key;
+  var w = Object.assign({}, colDrag.raw);
+  var lo = MIN_COL * factor - w[a];
+  var hi = w[b] - MIN_COL * factor;
+  var applied = Math.max(lo, Math.min(hi, deltaPct * factor));
   w[a] += applied;
   w[b] -= applied;
+
   ui.colWidths = w;
-  colDrag.table.style.setProperty('--cols', w.map(function (n) { return n + '%'; }).join(' '));
+  var norm = cols.map(function (col) { return w[col.key] * 100 / sum; });
+  colDrag.table.style.setProperty('--cols', norm.map(function (n) { return n.toFixed(3) + '%'; }).join(' '));
   var acc = 0;
   Array.prototype.forEach.call(colDrag.container.children, function (h, i) {
-    acc += w[i];
+    acc += norm[i];
     h.style.left = acc + '%';
   });
 }
@@ -1608,7 +1704,9 @@ function onColDragEnd() {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   §7 ERROR-CODE CONTROL
+   §9 ERROR-CODE CONTROL
+   Three scopes, identical mechanics. The three are INDEPENDENT: selecting a
+   code in one neither selects nor clears it in another.
    ══════════════════════════════════════════════════════════════════════════ */
 
 var openMenu = null;
@@ -1624,8 +1722,7 @@ function sortCodes(codes) {
 
 /* Checking a code adds a grid line, which means rebuilding the row — and the
    row owns the button the menu is anchored to. So edits are recorded while the
-   menu is open and the table is rebuilt once, on close. `skipRender` is for
-   callers that are about to render anyway. */
+   menu is open and the table is rebuilt once, on close. */
 function closeCodeMenu(skipRender) {
   if (!openMenu) return;
   if (openMenu.anchor) openMenu.anchor.setAttribute('aria-expanded', 'false');
@@ -1635,21 +1732,22 @@ function closeCodeMenu(skipRender) {
   if (dirty && !skipRender && currentCase) renderTarget(target);
 }
 
-/* The whole-rubrics lines rebuild the same way a row does, so both targets go
-   through one re-render entry point. */
 function renderTarget(target) {
-  if (target === SET_TARGET) renderSetCodes();
+  if (target === CASE_TARGET) renderScopeLines(CASE_TARGET);
+  else if (target === SET_TARGET) renderScopeLines(SET_TARGET);
   else renderRubrics(currentCase);
 }
 
-function targetLabel(target) {
-  return target === SET_TARGET ? 'the whole rubric set' : 'rubric R' + (target + 1);
+function targetAnchor(target) {
+  if (target === CASE_TARGET) return el.caseCodeBtn;
+  if (target === SET_TARGET) return el.setCodeBtn;
+  return el.rubricsWrap.querySelector('.rrow[data-idx="' + target + '"] .codebtn');
 }
 
-function targetAnchor(target) {
-  return target === SET_TARGET
-    ? el.setCodeBtn
-    : el.rubricsWrap.querySelector('.rrow[data-idx="' + target + '"] .codebtn');
+/* P0 / P1 / P2 for the eighteen; the four Prompt: codes group together. */
+function menuGroup(code) {
+  var p = code.slice(0, 2);
+  return (p === 'P0' || p === 'P1' || p === 'P2') ? p : 'Prompt & history';
 }
 
 function openCodeMenu(anchor, target) {
@@ -1669,8 +1767,8 @@ function openCodeMenu(anchor, target) {
   menu.setAttribute('aria-label', 'Error codes for ' + targetLabel(target));
 
   var lastGroup = null;
-  ERROR_CODES.forEach(function (entry) {
-    var group = entry.code.slice(0, 2); // P0 / P1 / P2
+  targetCodes(target).forEach(function (code) {
+    var group = menuGroup(code);
     if (group !== lastGroup) {
       lastGroup = group;
       var g = document.createElement('div');
@@ -1680,25 +1778,24 @@ function openCodeMenu(anchor, target) {
     }
 
     var label = document.createElement('label');
-
     var cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = st.codes.indexOf(entry.code) !== -1;
+    cb.checked = st.codes.indexOf(code) !== -1;
     cb.addEventListener('change', function () {
       var s = targetState(target);
-      var at = s.codes.indexOf(entry.code);
-      if (cb.checked && at === -1) s.codes.push(entry.code);
+      var at = s.codes.indexOf(code);
+      if (cb.checked && at === -1) s.codes.push(code);
       else if (!cb.checked && at !== -1) s.codes.splice(at, 1);
       s.codes = sortCodes(s.codes);
       pruneIssues(s);                 // unchecking discards that code's text
       if (openMenu) openMenu.dirty = true;
-      saveReview(currentCase.id, review);
+      saveReview(currentCase.key, review);
       refreshOutput();
     });
     label.appendChild(cb);
 
     var txt = document.createElement('span');
-    txt.textContent = entry.code;
+    txt.textContent = code;
     label.appendChild(txt);
     menu.appendChild(label);
   });
@@ -1714,7 +1811,7 @@ function openCodeMenu(anchor, target) {
     pruneIssues(s);
     if (openMenu) openMenu.dirty = true;
     Array.prototype.forEach.call(menu.querySelectorAll('input'), function (i) { i.checked = false; });
-    saveReview(currentCase.id, review);
+    saveReview(currentCase.key, review);
     refreshOutput();
   });
   var done = document.createElement('button');
@@ -1723,7 +1820,6 @@ function openCodeMenu(anchor, target) {
   done.textContent = 'Done';
   done.addEventListener('click', function () {
     closeCodeMenu();
-    // The row may have been rebuilt, taking `anchor` with it — re-find by target.
     var back = targetAnchor(target);
     if (back) back.focus();
   });
@@ -1750,45 +1846,43 @@ function openCodeMenu(anchor, target) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   §8 OUTPUT
+   §10 OUTPUT
    One ordered pass over (scope, code) pairs feeds both cells. Each pair carries
    its OWN text, which is the point of the per-code boxes.
 
-   BOTH CELLS ARE KEYED BY CODE (changed 2026-08-05, later). The remarks cell is
-   grouped by error code, not by rubric: one group per distinct code, in the same
-   canonical order and over the same set as the codes cell, with one entry per
-   scope that carries it — `ALL` first, then `R<n>` in table order.
+   BOTH CELLS ARE KEYED BY CODE. The remarks cell is grouped by error code, not
+   by rubric: one group per distinct code, in the same order and over the same
+   set as the codes cell, with one entry per scope that carries it — CASE first,
+   then ALL, then R<n> ascending.
 
-   So group N of the remarks cell IS entry N of the codes cell again. That 1:1
-   audit was lost when the codes cell was deduplicated; grouping restores it,
-   because grouping is the same dedup applied to the remarks side.
+   So group N of the remarks cell IS entry N of the codes cell. That 1:1 audit
+   is the cheapest possible check of the pair, and grouping is what preserves it.
    ══════════════════════════════════════════════════════════════════════════ */
 
-function collectPairs(rubricCount) {
+function pairsForScope(rev, target) {
+  var st = target === CASE_TARGET ? rev.case
+         : target === SET_TARGET ? rev.set
+         : rev.rows[target];
+  var codes = (st && Array.isArray(st.codes)) ? st.codes : [];
+  var byCode = (st && st.issues && typeof st.issues === 'object') ? st.issues : {};
+  return sortCodes(codes).map(function (code) {
+    return {
+      scope: target,
+      code: code,
+      issues: typeof byCode[code] === 'string' ? byCode[code] : ''
+    };
+  });
+}
+
+function collectRowPairs(rev, rubricCount) {
   var pairs = [];
   for (var i = 0; i < rubricCount; i++) {
-    var r = review.rows[i];
-    var codes = (r && Array.isArray(r.codes)) ? r.codes : [];
-    var byCode = (r && r.issues && typeof r.issues === 'object') ? r.issues : {};
-    sortCodes(codes).forEach(function (code) {
-      var text = typeof byCode[code] === 'string' ? byCode[code] : '';
-      pairs.push({ row: i, code: code, issues: text });
-    });
+    pairs = pairs.concat(pairsForScope(rev, i));
   }
   return pairs;
 }
 
-/* The whole-rubrics selection, in the same pair shape. It belongs to no row, so
-   its pairs carry no `row` — `SET_PREFIX` locates them instead of `R<n>`. */
-function collectSetPairs() {
-  var st = setState();
-  return sortCodes(st.codes).map(function (code) {
-    return { code: code, issues: typeof st.issues[code] === 'string' ? st.issues[code] : '' };
-  });
-}
-
-/* Distinct codes only, canonical order, comma-joined with no spaces:
-   `P0 Non-Binary…,P1 Unreasonable Rubric Weightage` */
+/* Distinct codes only, sort order above, comma-joined with no spaces. */
 function distinctCodes(pairs) {
   var seen = {}, out = [];
   pairs.forEach(function (p) {
@@ -1800,52 +1894,45 @@ function distinctCodes(pairs) {
 }
 
 function block(head, text) {
-  var body = text.replace(/\s+$/, '');
+  var body = String(text == null ? '' : text).replace(/\s+$/, '');
   return body ? head + '\n' + body : head;
 }
 
 /* Grouped by error code. Each group is `<code>:` followed immediately by one
-   entry per scope carrying it — `ALL:` first, then `R<n>:` in table order —
-   each entry being its label and that scope's own text. One blank line between
-   entries and between groups; no header line, no trailing whitespace.
+   entry per scope carrying it — widest scope first — each entry being its label
+   and that scope's own text. One blank line between entries and between groups;
+   no header line, no trailing whitespace.
 
-   The case-level code names no rubric, so it is a group with no entries: its
-   header sits directly above its comment. */
-function buildRemarks(pairs, setPairs, lang) {
-  var groups = [];
-  if (lang.on) groups.push(block(CASE_LEVEL_CODE + ':', lang.note));
-
-  // Bucket by code. Set entries are pushed first so they lead their group, and
-  // `pairs` arrives in table order, so rows stay ascending within a bucket.
+   A code with an empty text box still emits: a bare header is a visible
+   reminder that something was left unwritten. */
+function buildRemarks(casePairs, setPairs, rowPairs) {
   var byCode = {};
   function bucket(code) { return (byCode[code] = byCode[code] || []); }
-  setPairs.forEach(function (p) { bucket(p.code).push(block(SET_PREFIX + ':', p.issues)); });
-  pairs.forEach(function (p) { bucket(p.code).push(block('R' + (p.row + 1) + ':', p.issues)); });
+  casePairs.forEach(function (p) { bucket(p.code).push(block('CASE:', p.issues)); });
+  setPairs.forEach(function (p) { bucket(p.code).push(block('ALL:', p.issues)); });
+  rowPairs.forEach(function (p) { bucket(p.code).push(block(scopePrefix(p.scope) + ':', p.issues)); });
 
-  sortCodes(Object.keys(byCode)).forEach(function (code) {
-    groups.push(code + ':\n' + byCode[code].join('\n\n'));
-  });
-  return groups.join('\n\n');
+  return sortCodes(Object.keys(byCode)).map(function (code) {
+    return code + ':\n' + byCode[code].join('\n\n');
+  }).join('\n\n');
 }
 
 function currentOutput() {
   var n = currentCase ? currentCase.rubrics.length : 0;
-  var pairs = collectPairs(n);
-  var setPairs = collectSetPairs();
-  var lang = langReqState();
-  // Whole-rubrics and per-criterion codes dedup against each other: one set,
-  // one canonical order, regardless of which scope each code came from.
-  var codes = distinctCodes(setPairs.concat(pairs));
-  // Case-level, so it has no canonical slot among the fourteen — it leads.
-  if (lang.on) codes = [CASE_LEVEL_CODE].concat(codes);
+  var casePairs = pairsForScope(review, CASE_TARGET);
+  var setPairs = pairsForScope(review, SET_TARGET);
+  var rowPairs = collectRowPairs(review, n);
+  // All three scopes deduplicate against each other: the cell is a SET of
+  // codes and does not record which scope produced them.
+  var codes = distinctCodes(casePairs.concat(setPairs, rowPairs));
   return {
-    pairs: pairs,
+    casePairs: casePairs,
     setPairs: setPairs,
-    langReqOn: lang.on,
+    rowPairs: rowPairs,
     codeList: codes,
-    codes: codes.join(','),        // clipboard form
-    codesDisplay: codes.join('\n'),// on-screen preview — same set, one per line
-    remarks: buildRemarks(pairs, setPairs, lang)
+    codes: codes.join(','),          // clipboard form
+    codesDisplay: codes.join('\n'),  // on-screen preview — same set, one per line
+    remarks: buildRemarks(casePairs, setPairs, rowPairs)
   };
 }
 
@@ -1891,7 +1978,7 @@ function copyText(text, okNode, message) {
 
 function runCopy(kind) {
   var out = currentOutput();
-  if (!out.pairs.length && !out.setPairs.length && !out.langReqOn) {
+  if (!out.rowPairs.length && !out.setPairs.length && !out.casePairs.length) {
     flash(kind === 'codes' ? el.okCodes : el.okRemarks,
           'Nothing to copy — no error codes selected.', true);
     return;
@@ -1904,28 +1991,31 @@ function joinList(parts) {
   return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
 }
 
-/* The remarks count reports entries AND groups: the group count must equal the
-   codes count (both cells are the same deduplicated set of codes), while more
-   entries than groups is exactly how many times a code repeats across scopes or
-   rubrics. The phrase names every scope that contributed. */
+/* The remarks count reports entries AND codes: the code count must equal the
+   codes button's count — a mismatch is a bug made visible — while more entries
+   than codes is exactly how many times a code repeats across scopes. */
 function doCopy(kind, out) {
   var criteria = {};
-  out.pairs.forEach(function (p) { criteria[p.row] = true; });
+  out.rowPairs.forEach(function (p) { criteria[p.scope] = true; });
   var n = Object.keys(criteria).length;
   var s = out.setPairs.length;
+  var cl = out.casePairs.length;
+
   var extras = [];
   if (s) extras.push(s + ' whole-rubrics code' + (s === 1 ? '' : 's'));
-  if (out.langReqOn) extras.push('the case-level language requirement');
+  if (cl) extras.push(cl + ' case-level code' + (cl === 1 ? '' : 's'));
+
   var from = n
     ? ' from ' + n + ' criteri' + (n === 1 ? 'on' : 'a') +
       (extras.length ? ', plus ' + joinList(extras) + '.' : '.')
     : ' — ' + joinList(extras) + ' only.';
+
   if (kind === 'codes') {
     var k = out.codeList.length;
     copyText(out.codes, el.okCodes,
              'Copied ' + k + ' error code' + (k === 1 ? '' : 's') + from);
   } else {
-    var e = out.pairs.length + s + (out.langReqOn ? 1 : 0);
+    var e = out.rowPairs.length + s + cl;
     var g = out.codeList.length;
     copyText(out.remarks, el.okRemarks,
              'Copied ' + e + ' entr' + (e === 1 ? 'y' : 'ies') +
@@ -1935,7 +2025,127 @@ function doCopy(kind, out) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   §9 NAVIGATION
+   §11 BADCASE ANALYSIS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function renderStep1(c) {
+  el.step1.textContent = '';
+  var lang = panelLang('step1_analysis');
+  var r = resolve(c, 'step1_precision_screening', lang);
+  var s1 = (r.value && typeof r.value === 'object') ? r.value : null;
+  var orig = c.raw && c.raw.step1_precision_screening;
+
+  var head = document.createElement('div');
+  head.className = 'a-head';
+  var t = document.createElement('span');
+  t.className = 'a-title';
+  t.textContent = 'step1_precision_screening';
+  head.appendChild(t);
+  // A labelled number. Deliberately not linked to the conversation and not
+  // marked on the axis.
+  var rc = orig && orig.root_cause_turn_index;
+  head.appendChild(chip(rc === undefined || rc === null || rc === '' ? '—' : String(rc), 'root cause turn'));
+  el.step1.appendChild(head);
+
+  var spec = { id: 'step1_analysis', title: 'analysis', lang: true, raw: false };
+  var panel = makePanel(spec, { badge: r.fellBack ? 'ENG unavailable — showing original' : null });
+  var text = s1 ? str(s1.analysis) : '';
+  if (!text.trim()) panel.__body.appendChild(emptyNote());
+  else {
+    var md = document.createElement('div');
+    md.className = 'md';
+    renderMarkdown(md, text);
+    panel.__body.appendChild(md);
+  }
+  el.step1.appendChild(panel);
+}
+
+/* Grouped by `source` — the judge model's name. Reasons are never anchored to a
+   turn in the conversation: two judge models write into this one array, and
+   anchoring their reasons to turns would imply one verdict per turn when there
+   are two. Nothing hard-codes the number of sources. */
+function renderJudgeReasons(c) {
+  el.judge.textContent = '';
+  var spec = { id: 'judge_reasons', title: 'badcase_judge_reasons', lang: true, raw: false };
+  var lang = panelLang(spec.id);
+  var r = resolve(c, 'badcase_judge_reasons', lang);
+  var panel = makePanel(spec, { badge: r.fellBack ? 'ENG unavailable — showing original' : null });
+  var body = panel.__body;
+
+  var orig = c.raw && c.raw.badcase_judge_reasons;
+  if (orig === undefined || orig === null) {
+    body.appendChild(emptyNote('(no badcase_judge_reasons)'));
+    el.judge.appendChild(panel);
+    return;
+  }
+  if (!Array.isArray(orig)) {
+    // Context, never input — nothing downstream depends on it.
+    body.appendChild(inlineNote('badcase_judge_reasons is not an array — showing it raw.', 'error'));
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = JSON.stringify(orig, null, 2);
+    body.appendChild(pre);
+    el.judge.appendChild(panel);
+    return;
+  }
+
+  // `reason` is the only prose and the only translated part; the translated
+  // array is matched by ARRAY POSITION.
+  var tr = Array.isArray(r.value) ? r.value : null;
+
+  var order = [], groups = {};
+  orig.forEach(function (item, i) {
+    item = item || {};
+    var src = str(item.source) || '(no source)';
+    if (!groups[src]) { groups[src] = []; order.push(src); }
+    var t = (tr && tr[i] && isPresent(tr[i].reason)) ? str(tr[i].reason) : str(item.reason);
+    groups[src].push({
+      turnIndex: item.turn_index,
+      negative: item.has_negative_feedback === true,
+      reason: t
+    });
+  });
+
+  if (!order.length) { body.appendChild(emptyNote()); el.judge.appendChild(panel); return; }
+
+  order.forEach(function (src) {
+    var g = document.createElement('div');
+    g.className = 'jr-group';
+    var h = document.createElement('div');
+    h.className = 'jr-source';
+    h.textContent = src;
+    g.appendChild(h);
+
+    var ul = document.createElement('ul');
+    ul.className = 'jr';
+    groups[src].slice().sort(function (a, b) {
+      return (Number(a.turnIndex) || 0) - (Number(b.turnIndex) || 0);
+    }).forEach(function (row) {
+      var li = document.createElement('li');
+      var meta = document.createElement('div');
+      meta.className = 'meta';
+      if (row.turnIndex !== undefined && row.turnIndex !== null && row.turnIndex !== '') {
+        meta.appendChild(chip('turn ' + row.turnIndex));
+      }
+      // Rendered only when true.
+      if (row.negative) meta.appendChild(chip('negative ✓'));
+      li.appendChild(meta);
+      var md = document.createElement('div');
+      md.className = 'md';
+      renderMarkdown(md, row.reason || '(no reason given)');
+      li.appendChild(md);
+      ul.appendChild(li);
+    });
+    g.appendChild(ul);
+    body.appendChild(g);
+  });
+
+  el.judge.appendChild(panel);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §12 NAVIGATION
    ══════════════════════════════════════════════════════════════════════════ */
 
 var comboItems = [];
@@ -1945,8 +2155,9 @@ function filterCases(q) {
   var needle = q.trim().toLowerCase();
   if (!needle) return cases.map(function (c, i) { return i; });
   return cases.reduce(function (acc, c, i) {
-    // case id and row number only — body text is not indexed
-    if (c.id.toLowerCase().indexOf(needle) !== -1 || String(c.rowNumber).indexOf(needle) !== -1) acc.push(i);
+    // The case label and the line number only — body text is not indexed.
+    if (caseLabel(c).toLowerCase().indexOf(needle) !== -1 ||
+        String(c.lineNumber).indexOf(needle) !== -1) acc.push(i);
     return acc;
   }, []);
 }
@@ -1964,10 +2175,12 @@ function renderCombo(open) {
     li.setAttribute('aria-selected', String(i === currentIndex));
     if (pos === comboActive) li.classList.add('active');
     var a = document.createElement('span');
-    a.textContent = c.id;
+    a.textContent = caseLabel(c);
     var b = document.createElement('span');
     b.className = 'rowno';
-    b.textContent = '#' + c.rowNumber;
+    // Duplicate enc_chat_ids are kept as separate cases; the line number is
+    // what tells them apart here.
+    b.textContent = '#' + c.lineNumber;
     li.appendChild(a);
     li.appendChild(b);
     li.addEventListener('mousedown', function (ev) {
@@ -2005,23 +2218,22 @@ function moveCombo(delta) {
 
 function goTo(i) {
   if (i < 0 || i >= cases.length) return;
-  if (currentCase) saveReviewNow(currentCase.id, review);
+  if (currentCase) saveReviewNow(currentCase.key, review);
   closeCodeMenu(true);          // renderCase() below rebuilds the table anyway
   currentIndex = i;
   currentCase = cases[i];
-  review = loadReview(currentCase.id);
-  renderCache = {};           // per-case scratch buffer, not a memo table
-  expandedRows = {};
-  el.search.value = currentCase.id;
+  review = loadReview(currentCase.key);
+  expandedMsgs = {};
+  el.search.value = caseLabel(currentCase);
   renderCase();
-  el.scroll.scrollTop = 0;
+  el.scroll.scrollTop = 0;      // the viewport moves only on a case change
   el.prev.disabled = (i === 0);
   el.next.disabled = (i === cases.length - 1);
 }
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   §10 CHROME
+   §13 CHROME
    ══════════════════════════════════════════════════════════════════════════ */
 
 function applyTheme() {
@@ -2084,17 +2296,22 @@ function wireGrip() {
   });
 }
 
-function showReport(fileName, total, issues) {
-  if (!issues.length) { el.report.hidden = true; return; }
-  // No '⚠' prefix: the banner carries an SVG alert glyph in the markup.
-  el.reportTitle.textContent = 'Loaded ' + total + ' cases with ' + issues.length +
-                               ' issue' + (issues.length === 1 ? '' : 's');
+/* The file always loads; problems are collected here instead of thrown. */
+function showReport() {
+  if (!loadIssues.length) { el.report.hidden = true; return; }
+  el.reportTitle.textContent = 'Loaded ' + cases.length + ' case' + (cases.length === 1 ? '' : 's') +
+                               ' with ' + loadIssues.length + ' issue' + (loadIssues.length === 1 ? '' : 's');
   el.reportList.textContent = '';
-  issues.forEach(function (t) {
+  loadIssues.slice(0, 200).forEach(function (t) {
     var li = document.createElement('li');
     li.textContent = '· ' + t;
     el.reportList.appendChild(li);
   });
+  if (loadIssues.length > 200) {
+    var li2 = document.createElement('li');
+    li2.textContent = '· … and ' + (loadIssues.length - 200) + ' more';
+    el.reportList.appendChild(li2);
+  }
   el.report.hidden = false;
 }
 
@@ -2106,60 +2323,68 @@ function confirmDialog(title, body, onYes) {
 }
 
 function setAllPanelLangs(lang) {
-  ['user_prompt', 'rubrics'].concat(PANELS.map(function (p) { return p.id; })).forEach(function (id) {
-    ui.panelLangs[id] = lang;
-  });
+  LANG_TARGETS.forEach(function (id) { ui.panelLangs[id] = lang; });
   saveUI();
   renderCase();
 }
 
 function toggleCollapseAll() {
-  var ids = ['user_prompt'].concat(PANELS.map(function (p) { return p.id; }));
-  var anyOpen = ids.some(function (id) { return !ui.panelCollapsed[id]; });
-  ids.forEach(function (id) { ui.panelCollapsed[id] = anyOpen; });
+  var anyOpen = ALL_PANEL_IDS.some(function (id) { return !ui.panelCollapsed[id]; });
+  ALL_PANEL_IDS.forEach(function (id) { ui.panelCollapsed[id] = anyOpen; });
   saveUI();
   el.collapseAll.textContent = anyOpen ? '⇵ expand all' : '⇵ collapse all';
   renderCase();
 }
 
-
-/* ══════════════════════════════════════════════════════════════════════════
-   §11 RENDER + INIT
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function renderLangReq() {
-  var lang = langReqState();
-  el.langReqCheck.checked = lang.on;
-  el.langReqNote.hidden = !lang.on;     // no code → no box, as on a rubric row
-  el.langReqNote.value = lang.note;
+function updateFileMeta() {
+  var parts = [];
+  if (casesFileName) parts.push(casesFileName + ' — ' + cases.length.toLocaleString() + ' cases');
+  if (agentsFileName) {
+    // Counted over CSV ROWS, not cases: two cases sharing a duplicate
+    // enc_chat_id are one matched row, and the number has to add up to the row
+    // total for "N unmatched" to mean anything.
+    var used = {};
+    cases.forEach(function (c) { if (c.agent) used[c.encChatId] = true; });
+    var rows = Object.keys(agentsByChatId).length;
+    var matched = Object.keys(used).length;
+    parts.push(agentsFileName + ' — ' + matched + ' matched, ' + (rows - matched) + ' unmatched');
+  }
+  el.fileMeta.textContent = parts.join(' · ');
 }
 
-/* One line per selected whole-rubrics code, exactly as a rubric row does: the
-   picker is the single authoring surface, the lines are a view of the set, and
-   a code with no line has no box. */
-function renderSetCodes() {
-  var st = setState();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §14 RENDER + LOAD
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* One line per selected code, exactly as a rubric row does: the picker is the
+   single authoring surface, the lines are a view of the set, and a code with no
+   line has no box. */
+function renderScopeLines(target) {
+  var btn = target === CASE_TARGET ? el.caseCodeBtn : el.setCodeBtn;
+  var wrap = target === CASE_TARGET ? el.caseCodeLines : el.setCodeLines;
+  var st = targetState(target);
   var codes = sortCodes(st.codes);
 
-  el.setCodeBtn.textContent = '';
+  btn.textContent = '';
   if (!codes.length) {
     var p = document.createElement('span');
     p.className = 'placeholder';
     p.textContent = 'no code — click to select';
-    el.setCodeBtn.appendChild(p);
+    btn.appendChild(p);
   } else {
-    el.setCodeBtn.textContent = codes.length + ' selected — click to change';
+    btn.textContent = codes.length + ' selected — click to change';
   }
-  el.setCodeBtn.setAttribute('aria-label',
-    'Error codes for the whole rubric set: ' + (codes.length ? codes.length + ' selected' : 'none selected'));
+  btn.setAttribute('aria-label', 'Error codes for ' + targetLabel(target) + ': ' +
+    (codes.length ? codes.length + ' selected' : 'none selected'));
 
-  el.setCodeLines.textContent = '';
+  wrap.textContent = '';
   codes.forEach(function (code) {
     var line = document.createElement('div');
     line.className = 'setline';
-    line.appendChild(buildCodeCell(SET_TARGET, code));
-    line.appendChild(buildIssuesCell(SET_TARGET, code, st));
-    el.setCodeLines.appendChild(line);
+    line.appendChild(buildCodeCell(target, code));
+    line.appendChild(buildIssuesCell(target, code, st));
+    wrap.appendChild(line);
   });
 }
 
@@ -2167,25 +2392,38 @@ function renderCase() {
   var c = currentCase;
   if (!c) return;
   renderHeaderStrip(c);
+
+  if (c.parseError) {
+    el.pinnedWrap.hidden = true;
+    el.panels.textContent = '';
+    el.panels.appendChild(inlineNote(
+      'line ' + c.lineNumber + ' could not be parsed as JSON: ' + c.parseError, 'error'));
+    var pre = document.createElement('pre');
+    pre.className = 'raw';
+    pre.textContent = c.rawLine;
+    el.panels.appendChild(pre);
+    el.agents.textContent = '';
+    el.rubricsWrap.textContent = '';
+    el.step1.textContent = '';
+    el.judge.textContent = '';
+    el.general.value = '';
+    el.empty.hidden = true;
+    el.caseBody.hidden = false;
+    return;
+  }
+
   renderPinnedPrompt(c);
   renderPanels(c);
   renderAgentPanes(c);
   renderRubrics(c);
 
   el.general.value = review.remarks;
-  renderLangReq();
-  renderSetCodes();
+  renderScopeLines(CASE_TARGET);
+  renderScopeLines(SET_TARGET);
   refreshOutput();
 
-  el.otherList.textContent = '';
-  OTHER_FIELDS.forEach(function (pair) {
-    var dt = document.createElement('dt');
-    dt.textContent = pair[0];
-    var dd = document.createElement('dd');
-    dd.textContent = c.otherFields[pair[0]] || '—';
-    el.otherList.appendChild(dt);
-    el.otherList.appendChild(dd);
-  });
+  renderStep1(c);
+  renderJudgeReasons(c);
 
   el.globalZh.setAttribute('aria-pressed', 'false');
   el.globalEn.setAttribute('aria-pressed', 'false');
@@ -2193,56 +2431,73 @@ function renderCase() {
   el.caseBody.hidden = false;
 }
 
-function loadCSVText(text, fileName) {
-  var parsed = Papa.parse(text, { header: true, skipEmptyLines: 'greedy' });
-
-  var fields = (parsed.meta.fields || []).map(normKey);
-  var chunks = buildChunkIndex(fields);
-
-  var issues = [];
-  (parsed.errors || []).slice(0, 12).forEach(function (e) {
-    issues.push('CSV parse — row ' + (e.row === undefined ? '?' : e.row + 1) + ': ' + e.message);
+/* Joining is re-run whenever either side changes, so the CSV can be added,
+   replaced or removed at any time without reloading the cases. */
+function joinAgents() {
+  var used = {};
+  cases.forEach(function (c) {
+    var row = c.encChatId ? agentsByChatId[c.encChatId] : null;
+    c.agent = row || null;
+    if (row) used[c.encChatId] = true;
   });
-
-  var built = [];
-  parsed.data.forEach(function (raw, i) {
-    var row = {};
-    Object.keys(raw).forEach(function (k) { row[normKey(k)] = raw[k]; });
-    var c = buildCase(row, chunks, i + 1);
-    c.issues.forEach(function (t) { issues.push('case ' + c.id + ' — ' + t); });
-    built.push(c);
-  });
-
-  if (!built.length) {
-    issues.push('No data rows found — check that the file has a header row.');
+  var unmatched = Object.keys(agentsByChatId).filter(function (k) { return !used[k]; });
+  if (unmatched.length && agentsFileName) {
+    loadIssues.push(agentsFileName + ' — ' + unmatched.length + ' row' +
+                    (unmatched.length === 1 ? '' : 's') + ' matched no case (' +
+                    unmatched.slice(0, 5).join(', ') + (unmatched.length > 5 ? ', …' : '') + ')');
   }
+}
+
+function loadJSONL(text, fileName) {
+  var lines = text.split(/\r?\n/);
+  var issues = [];
+  var built = [];
+  lines.forEach(function (line, i) {
+    if (!line.trim()) return;      // blank lines are separators, not cases
+    built.push(buildCase(line, i + 1, issues));
+  });
+
+  if (!built.length) issues.push(fileName + ' — no non-empty lines found');
+
+  // Not expected to occur. If it does: keep both, disambiguate by line number,
+  // and report. Last-wins would silently discard data.
+  var seen = {};
+  built.forEach(function (c) {
+    if (!c.encChatId) return;
+    if (seen[c.encChatId]) {
+      issues.push('duplicate enc_chat_id ' + c.encChatId + ' on lines ' +
+                  seen[c.encChatId] + ' and ' + c.lineNumber +
+                  ' — both kept, review state is shared between them');
+    } else {
+      seen[c.encChatId] = c.lineNumber;
+    }
+  });
 
   cases = built;
-  var rubricTotal = cases.reduce(function (n, c) { return n + c.rubrics.length; }, 0);
-  el.fileMeta.textContent = fileName + ' — ' + cases.length.toLocaleString() + ' cases, ' +
-                            rubricTotal.toLocaleString() + ' rubrics';
+  casesFileName = fileName;
+  fileHasTranslations = built.some(function (c) { return c.hasTr; });
+  loadIssues = issues;
+  joinAgents();
+  updateFileMeta();
+  showReport();
   el.search.disabled = false;
-  showReport(fileName, cases.length, issues);
   renderCombo(false);
 
-  var prevName = lsGet(LS.csvName, null);
-  lsSet(LS.csvName, fileName);
+  var prevName = lsGet(LS.casesName, null);
+  lsSet(LS.casesName, fileName);
 
   function start() { if (cases.length) goTo(0); }
 
   if (prevName && prevName !== fileName && allReviewKeys().length) {
     confirmDialog(
-      'Different CSV loaded',
+      'Different JSONL loaded',
       'Review data on this machine was saved against "' + prevName + '". Keep it (it is keyed by ' +
-      'case id, so it will reattach to any matching case), or clear all stored review data and start fresh?',
+      'enc_chat_id, so it reattaches to any matching case), or clear all stored review data and ' +
+      'start fresh?',
       function (yes) {
-        if (yes) {
-          allReviewKeys().forEach(lsDel);
-        }
+        if (yes) allReviewKeys().forEach(lsDel);
         start();
-      },
-      true
-    );
+      });
     el.dlgYes.textContent = 'Clear all';
     el.dlgNo.textContent = 'Keep';
   } else {
@@ -2250,12 +2505,77 @@ function loadCSVText(text, fileName) {
   }
 }
 
+/* Papa Parse, not a hand-rolled split: these cells are human-written and
+   contain embedded newlines and escaped quotes. */
+function loadAgentsCSV(text, fileName) {
+  var parsed = Papa.parse(text, { header: true, skipEmptyLines: 'greedy' });
+  var map = {};
+  var missingCols = [];
+
+  var fields = (parsed.meta.fields || []).map(normKey);
+  [COL.encChatId, COL.caseId, COL.agentACodes, COL.agentARemarks,
+   COL.agentBCodes, COL.agentBRemarks].forEach(function (want) {
+    if (fields.indexOf(want) === -1) missingCols.push(want);
+  });
+
+  parsed.data.forEach(function (raw) {
+    var row = {};
+    Object.keys(raw).forEach(function (k) { row[normKey(k)] = raw[k]; });
+    var id = str(row[COL.encChatId]).trim();
+    if (!id) return;
+    map[id] = {
+      caseId: str(row[COL.caseId]).trim(),
+      a: { codes: str(row[COL.agentACodes]), remarks: str(row[COL.agentARemarks]) },
+      b: { codes: str(row[COL.agentBCodes]), remarks: str(row[COL.agentBRemarks]) }
+    };
+  });
+
+  agentsByChatId = map;
+  agentsFileName = fileName;
+  lsSet(LS.agentsName, fileName);
+
+  // Dropping the CSV first is legal: it simply waits for the cases to arrive.
+  if (!cases.length) {
+    el.fileMeta.textContent = fileName + ' — ' + Object.keys(map).length +
+                              ' rows, waiting for a .jsonl';
+    return;
+  }
+
+  loadIssues = loadIssues.filter(function (t) { return t.indexOf(' matched no case (') === -1; });
+  if (missingCols.length) {
+    loadIssues.push(fileName + ' — missing column' + (missingCols.length === 1 ? '' : 's') + ': ' +
+                    missingCols.join(', ') + ' (those panes render empty)');
+  }
+  joinAgents();
+  updateFileMeta();
+  showReport();
+  // The labels just changed from enc_chat_id to `case id`, so the search box has
+  // to be re-seeded BEFORE the list is filtered against it.
+  if (currentCase) el.search.value = caseLabel(currentCase);
+  renderCombo(false);
+  if (currentCase) renderCase();
+}
+
+/* One shared drop zone; routing is by extension. */
 function handleFile(file) {
   if (!file) return;
+  var name = file.name || '';
+  var isCsv = /\.csv$/i.test(name);
+  var isJsonl = /\.(jsonl|json)$/i.test(name);
+  if (!isCsv && !isJsonl) {
+    loadIssues = loadIssues.concat([name + ' — unrecognised extension; expected .jsonl or .csv']);
+    showReport();
+    return;
+  }
   var reader = new FileReader();
-  reader.onload = function () { loadCSVText(String(reader.result), file.name); };
+  reader.onload = function () {
+    if (isCsv) loadAgentsCSV(String(reader.result), name);
+    else loadJSONL(String(reader.result), name);
+  };
   reader.onerror = function () {
-    showReport(file.name, 0, ['Could not read the file: ' + (reader.error && reader.error.message)]);
+    loadIssues = loadIssues.concat([name + ' — could not be read: ' +
+                                    (reader.error && reader.error.message)]);
+    showReport();
   };
   reader.readAsText(file, 'utf-8');
 }
@@ -2267,7 +2587,8 @@ function init() {
   window.addEventListener('mousemove', onColDragMove);
   window.addEventListener('mouseup', onColDragEnd);
 
-  el.fileInput.addEventListener('change', function () { handleFile(el.fileInput.files[0]); });
+  el.casesInput.addEventListener('change', function () { handleFile(el.casesInput.files[0]); });
+  el.agentsInput.addEventListener('change', function () { handleFile(el.agentsInput.files[0]); });
 
   var dragDepth = 0;
   window.addEventListener('dragenter', function (ev) {
@@ -2284,7 +2605,9 @@ function init() {
     ev.preventDefault();
     dragDepth = 0;
     el.dropOverlay.hidden = true;
-    if (ev.dataTransfer && ev.dataTransfer.files.length) handleFile(ev.dataTransfer.files[0]);
+    if (ev.dataTransfer && ev.dataTransfer.files.length) {
+      Array.prototype.forEach.call(ev.dataTransfer.files, handleFile);
+    }
   });
 
   el.prev.addEventListener('click', function () { goTo(currentIndex - 1); });
@@ -2321,27 +2644,15 @@ function init() {
 
   el.general.addEventListener('input', function () {
     review.remarks = el.general.value;
-    if (currentCase) saveReview(currentCase.id, review);
+    if (currentCase) saveReview(currentCase.key, review);
   });
 
-  el.langReqCheck.addEventListener('change', function () {
-    var lang = langReqState();
-    lang.on = el.langReqCheck.checked;
-    if (!lang.on) lang.note = '';       // unchecking discards its text, as on a rubric row
-    renderLangReq();
-    if (currentCase) saveReviewNow(currentCase.id, review);
-    refreshOutput();
-    if (lang.on) el.langReqNote.focus();
-  });
-
-  el.langReqNote.addEventListener('input', function () {
-    langReqState().note = el.langReqNote.value;
-    if (currentCase) saveReview(currentCase.id, review);
-    refreshOutput();
-  });
-
-  el.setCodeBtn.addEventListener('click', function (ev) {
+  el.caseCodeBtn.addEventListener('click', function (ev) {
     ev.stopPropagation();                 // the document handler closes the menu
+    openCodeMenu(el.caseCodeBtn, CASE_TARGET);
+  });
+  el.setCodeBtn.addEventListener('click', function (ev) {
+    ev.stopPropagation();
     openCodeMenu(el.setCodeBtn, SET_TARGET);
   });
 
@@ -2350,15 +2661,17 @@ function init() {
   el.copyGeneral.addEventListener('click', function () {
     copyText(el.general.value, el.okGeneral, 'Copied general remarks.');
   });
+
   el.clearCase.addEventListener('click', function () {
     if (!currentCase) return;
     confirmDialog('Clear this case?',
-      'Removes every error code — per-criterion, whole-rubrics and case-level — all issues ' +
-      'text and the general remarks for case ' + currentCase.id + '. This cannot be undone.',
+      'Removes every error code — case-level, whole-rubrics and per-criterion — all issues text ' +
+      'and the general remarks for ' + caseLabel(currentCase) + '. This cannot be undone.',
       function (yes) {
         if (!yes) return;
+        closeCodeMenu(true);
         review = emptyReview();
-        lsDel(reviewKey(currentCase.id));
+        lsDel(reviewKey(currentCase.key));
         renderCase();
       });
     el.dlgYes.textContent = 'Clear this case';
@@ -2384,6 +2697,17 @@ function init() {
         el.dlgNo.textContent = 'Cancel';
       });
     el.dlgYes.textContent = 'Continue';
+    el.dlgNo.textContent = 'Cancel';
+  });
+
+  el.clearV1.addEventListener('click', function () {
+    var keys = allV1Keys();
+    confirmDialog('Clear v1 review data?',
+      'v1 wrote ' + keys.length + ' entr' + (keys.length === 1 ? 'y' : 'ies') + ' under the `brv:` ' +
+      'namespace. This tool never reads them. Deleting them reclaims the space and affects nothing ' +
+      'in v2.',
+      function (yes) { if (yes) keys.forEach(lsDel); });
+    el.dlgYes.textContent = 'Delete v1 data';
     el.dlgNo.textContent = 'Cancel';
   });
 
@@ -2428,7 +2752,7 @@ function init() {
   });
 
   window.addEventListener('beforeunload', function () {
-    if (currentCase) saveReviewNow(currentCase.id, review);
+    if (currentCase) saveReviewNow(currentCase.key, review);
   });
 }
 
