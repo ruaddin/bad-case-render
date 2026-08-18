@@ -2,6 +2,80 @@
 
 All notable changes to the Bad Case Rubrics Review Viewer.
 
+## [2.1.0] — 2026-08-18
+
+### Spec
+
+- **Turns are built from role order, not `message_id`.** Real files repeat ids on non-adjacent
+  messages, which folded a later message back into an earlier turn and swallowed the final turn.
+  A turn is now a user/assistant pair, with preceding `system` messages folded in and a new turn
+  opening on role regression. Settled in a grilling session, 2026-08-18.
+- **`message_id` demoted to the translation join key.** Its `(message_id, role)` + ordinal matching
+  is unchanged; the spec now states the ordinal rule explicitly, since duplicate ids are expected.
+- **Turn numbers count every emitted turn**, including a leading assistant-only turn and a trailing
+  systems-only turn.
+- **The collapsed preamble block is gone.** Leading systems belong to turn 1, rendered as a
+  collapsed `▸ system (N)` block inside it. `.preamble` → `.system-block`. Position-dependent
+  system handling is deleted — one rule everywhere.
+- **The `turn-axis` moves to the top of the turn**, becoming a header rather than a divider, so a
+  turn with no assistant no longer dangles a rule over nothing.
+- Rewritten: *Messages*, *Translations* matching, *The conversation* including its edge-case table,
+  the turn-splitting non-goal, and open items #1, #3 and #6.
+
+### Implementation
+
+Built 2026-08-18. `index.html` and `styles/app.css` changed; `styles/tokens.css`, `vendor/` and
+`verify-output.js` untouched — the output format did not move.
+
+- **`buildConversation()` is now the spec's state machine**, one pass over `messages[]` consulting
+  nothing but `role`. `byId` / `seenNonSystem` / `blocks` and the `kind: 'system'` block type are
+  gone; it returns `{ turns, noIdCount }`. Its `issues` and `label` parameters are gone with them —
+  grouping no longer has anything to report.
+- **`buildTurn()` emits axis → `.system-block` → user cards → `.assistant-stack`.** The
+  `assistant-stack` is only emitted when the turn has an assistant, so an unanswered final prompt
+  leaves no empty flex child behind the turn's `gap`.
+- **The preamble branch is deleted from `buildConversationPanel()`**, which now maps `conv.turns`
+  and nothing else.
+- **CSS**: `.preamble` → `.system-block` (same dashed-border, mono-summary treatment, `margin-bottom`
+  dropped); `.conversation-turn` gains `gap: 12px`; `.turn-axis` loses its `8px 0` margin. The
+  narrow-width `.turn-axis::after { display: none }` override is removed — the axis is a header at
+  every width now, so there is one rule instead of two.
+- The `(message_id, role)` + ordinal translation resolver is **unchanged**; ordinals are still fixed
+  at ingest, and now cover `system` messages too, since they carry ids like any other message.
+- Version strings bumped to `2.1.0`.
+
+**Decision taken where the spec was silent**
+
+- **The no-`message_id` load-report entry is only raised when the case actually has
+  `messages_translated`.** The spec's edge-case table lists the entry unconditionally, but a missing
+  id costs nothing when there is no translation to match, and reporting "translations fall back to
+  positional matching" against a file with no translations is misleading. It is also one aggregated
+  entry per case (`N message(s) have no message_id`), not one per message, replacing v2.0's per
+  message "rendered as its own turn" line.
+
+**Verification**
+
+- New `turns.test.js` runs `buildConversation`, `msgText` and `indexTranslatedMessages` extracted
+  from `index.html` under `node:vm`: 22 assertions covering all six rows of the spec's sequence
+  table, systems-only and empty conversations, turn numbering across a leading assistant-only and a
+  trailing systems-only turn, unknown roles, non-object entries, `noIdCount`, and the ordinal
+  resolver. All green. **Its home is the scratchpad, not the repo** — a test file was not part of the
+  ask.
+- **The v2.0 regression is covered directly**: `u1/a1, u2/a2, u3/a3` with ids `x, y, x` now yields
+  three turns with `u3` in turn 3. `groupBy(message_id)` folded it into turn 1 and dropped turn 3.
+- End-to-end in headless Chrome against a synthetic four-line JSONL, driving the real file input:
+  child order per turn, `system (N)` summary text, problem-turn marking, the systems-only trailing
+  turn, positional translation fallback for a case with no ids, and the load report. Zero
+  `.preamble` nodes, no console errors.
+- `node verify-output.js` still all green; `node --check` on the extracted script block passes.
+
+**Not verified against a real export**, so open items #2 and #3 — whether the producer counts turns
+the way this machine does — remain open. Everything here follows the spec's pseudocode literally.
+One consequence worth knowing: a `system` message arriving *mid-turn* (after a user, with no
+assistant yet) stays buffered and joins the **next** turn opened, which may be the trailing
+systems-only turn. That is what "systems join the NEXT turn opened" means, and it is what makes the
+`…, assistant, system, system` row emit a turn of its own.
+
 ## [2.0.0] — 2026-08-17
 
 Breaking on three axes at once: input format, display, and taxonomy. Stored v1 review data is

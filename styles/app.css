@@ -366,24 +366,26 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
    Class names are context.template.html's, verbatim.
 
    Roles are demarked three ways at once: the card class (colour and accent),
-   the role label in .message-role, and structural position — user above the
-   axis, assistant below it. The axis sits BETWEEN them, so a turn boundary is
-   a visible rule carrying the number rather than a gap. */
+   the role label in .message-role, and structural position — systems first,
+   then user, then the assistant stack. The axis is the turn's header, so the
+   separation between the cards is the turn's own gap. */
 
-.preamble {
+/* `system` messages, wherever they appeared: collapsed, at the top of the turn
+   they were folded into. Formerly .preamble, which only ever held a leading run. */
+.system-block {
   border: 1px dashed var(--border-strong); border-radius: var(--r-lg);
   background: var(--surface-2);
-  padding: 8px 12px; margin-bottom: 16px;
+  padding: 8px 12px;
 }
-.preamble > summary {
+.system-block > summary {
   cursor: pointer; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
   color: var(--text-2);
 }
-.preamble .message-card { margin-top: 12px; }
+.system-block .message-card { margin-top: 12px; }
 
 .conversation-list { display: flex; flex-direction: column; gap: 20px; }
 
-.conversation-turn { display: flex; flex-direction: column; }
+.conversation-turn { display: flex; flex-direction: column; gap: 12px; }
 
 .message-card {
   border: 1px solid var(--border); border-radius: var(--r-lg);
@@ -434,10 +436,10 @@ main { flex: 1 1 auto; overflow-y: auto; padding: 20px 24px 64px; }
 }
 .showmore:hover { text-decoration: underline; }
 
-/* The rule between a turn's user and assistant halves, carrying the number. */
+/* The turn's header, carrying the number. Trailing hairline, no top or bottom
+   margin — .conversation-turn's gap does the spacing. */
 .turn-axis {
   display: flex; align-items: center; gap: 8px;
-  margin: 8px 0;
   color: var(--text-3);
 }
 .turn-axis::after {
@@ -774,8 +776,6 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
   /* Same stacking rule for the case and whole-rubrics lines. */
   .setline { display: block; }
   .setline .c-issues { margin-top: 8px; }
-  /* The axis becomes a label above the pair rather than a rule between them. */
-  .turn-axis::after { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -257,7 +257,7 @@
   <p>Review state is stored per case and keyed by <code>enc_chat_id</code>, so it survives switching
      cases, reloading the page, and the Agent A / B CSV being absent, replaced or re-exported.
      Neither input file is ever written to.</p>
-  <p class="version">v2.0.0</p>
+  <p class="version">v2.1.0</p>
   <div class="actions">
     <button type="button" class="btn btn-primary" id="helpClose">Close</button>
   </div>
@@ -278,7 +278,7 @@
    The only place taxonomy, column names and thresholds are written down.
    ══════════════════════════════════════════════════════════════════════════ */
 
-var VERSION = '2.0.0';
+var VERSION = '2.1.0';
 
 /* Canonical order. Governs the menu order in the ALL and R<n> scopes, and —
    after the four Prompt: codes — the output ordering of both generated cells.
@@ -523,16 +523,18 @@ function msgText(m) {
   return str(c.text);
 }
 
-/* Turns are an exact groupBy(message_id) over the non-system messages, in
-   first-appearance order. No regex over prose, ever.
-   `system` is pulled out first: a leading run becomes the preamble, anything
-   later becomes an inline full-width block at its own position. */
-function buildConversation(messages, issues, label) {
-  var blocks = [];        // { kind: 'system' | 'turn', ... } in file order
-  var turns = [];         // the 'turn' blocks only, so turn N is turns[N-1]
-  var byId = {};
-  var seenNonSystem = false;
-  var preamble = [];
+/* Turns come from ROLE ORDER, one pass over messages[] in file order. A turn is
+   a user/assistant pair; `system` messages buffer and fold into the next turn
+   opened. A user message arriving when the turn already holds an assistant is a
+   role regression, which closes that turn and opens the next.
+   message_id plays no part: real files repeat it on non-adjacent messages, and
+   grouping by it folded a later message back into an earlier turn and swallowed
+   the final turn. No regex over prose, ever. */
+function buildConversation(messages) {
+  var turns = [];              // turn N is turns[N-1]
+  var pendingSystems = [];     // buffered, join the NEXT turn opened
+  var current = null;
+  var noIdCount = 0;
   /* Ordinal within (message_id, role), fixed at ingest so it does not depend on
      render order. It is what addresses messages_translated when a turn holds
      several messages of the same role. */
@@ -543,39 +545,31 @@ function buildConversation(messages, issues, label) {
     ordinals[ok] = n + 1;
     return { msg: m, index: i, role: role, ordinal: n };
   }
+  function openTurn() {
+    current = { number: turns.length + 1, systems: pendingSystems, user: [], assistant: [] };
+    pendingSystems = [];
+    turns.push(current);
+  }
 
   (messages || []).forEach(function (m, i) {
     if (!m || typeof m !== 'object') return;
-    var role = str(m.role) || 'user';
+    var role = str(m.role);
+    if (role !== 'system' && role !== 'assistant') role = 'user';
+    if (m.message_id == null || String(m.message_id) === '') noIdCount++;
 
-    if (role === 'system') {
-      if (!seenNonSystem) { preamble.push(entryFor(m, i, role)); return; }
-      blocks.push({ kind: 'system', messages: [entryFor(m, i, role)] });
-      return;
-    }
-    seenNonSystem = true;
+    if (role === 'system') { pendingSystems.push(entryFor(m, i, role)); return; }
 
-    var id = m.message_id;
-    var key;
-    if (id == null || String(id) === '') {
-      // Cannot join a turn: it becomes a turn of its own, in file order.
-      key = ' nomsgid:' + i;
-      issues.push(label + ' — message ' + (i + 1) + ' has no message_id, rendered as its own turn');
-    } else {
-      key = String(id);
+    if (role === 'user' && current && current.assistant.length) {
+      current = null;                       // role regression closes the turn
     }
-
-    var turn = byId[key];
-    if (!turn) {
-      turn = { kind: 'turn', id: key, number: turns.length + 1, user: [], assistant: [] };
-      byId[key] = turn;
-      turns.push(turn);
-      blocks.push(turn);
-    }
-    (role === 'assistant' ? turn.assistant : turn.user).push(entryFor(m, i, role));
+    if (!current) openTurn();
+    (role === 'assistant' ? current.assistant : current.user).push(entryFor(m, i, role));
   });
 
-  return { blocks: blocks, turns: turns, preamble: preamble };
+  // Trailing systems with nothing after them still get a turn of their own.
+  if (pendingSystems.length) openTurn();
+
+  return { turns: turns, noIdCount: noIdCount };
 }
 
 /* messages_translated[] is matched by message_id + role, then by ordinal within
@@ -627,7 +621,7 @@ function buildCase(line, lineNumber, issues) {
     return {
       lineNumber: lineNumber, raw: null, rawLine: line, parseError: parseError,
       encChatId: '', key: 'line:' + lineNumber, langCode: '', problemTurnIndex: null,
-      conversation: { blocks: [], turns: [], preamble: [] }, trMsg: null,
+      conversation: { turns: [], noIdCount: 0 }, trMsg: null,
       rubrics: [], rubricsTr: [], hasTr: false, agent: null
     };
   }
@@ -638,7 +632,7 @@ function buildCase(line, lineNumber, issues) {
   }
 
   var pti = Number(obj.problem_turn_index);
-  var conv = buildConversation(obj.messages, issues, 'line ' + lineNumber);
+  var conv = buildConversation(obj.messages);
 
   if (Number.isFinite(pti) && !conv.turns[pti - 1]) {
     // Never guess-attach: a confident link to the wrong turn is worse than none.
@@ -655,6 +649,12 @@ function buildCase(line, lineNumber, issues) {
     if (Array.isArray(obj.messages) && obj.messages.length !== trMsg.list.length) {
       issues.push('line ' + lineNumber + ' — messages_translated has ' + trMsg.list.length +
                   ' entries against ' + obj.messages.length + ', matched by message_id');
+    }
+    /* A missing message_id costs nothing structurally — the message still joins
+       its turn by role. Only its translation lookup degrades to positional. */
+    if (conv.noIdCount) {
+      issues.push('line ' + lineNumber + ' — ' + conv.noIdCount + ' message(s) have no message_id, ' +
+                  'their translations fall back to positional matching');
     }
   }
 
@@ -1040,7 +1040,7 @@ function buildConversationPanel(c, spec) {
   var body = panel.__body;
   var conv = c.conversation;
 
-  if (!conv.blocks.length && !conv.preamble.length) {
+  if (!conv.turns.length) {
     body.appendChild(emptyNote('(no messages)'));
     return panel;
   }
@@ -1048,32 +1048,11 @@ function buildConversationPanel(c, spec) {
   var lang = panelLang(spec.id);
   var fellBack = { any: false };
 
-  if (conv.preamble.length) {
-    // No user message, setup rather than dialogue, usually long boilerplate.
-    var det = document.createElement('details');
-    det.className = 'preamble';
-    var sum = document.createElement('summary');
-    sum.textContent = 'system prompt' + (conv.preamble.length > 1 ? ' (' + conv.preamble.length + ')' : '');
-    det.appendChild(sum);
-    conv.preamble.forEach(function (entry) {
-      det.appendChild(buildMessageCard(c, entry, 'system', lang, false, fellBack));
-    });
-    body.appendChild(det);
-  }
-
   var list = document.createElement('div');
   list.className = 'conversation-list';
-
-  conv.blocks.forEach(function (b) {
-    if (b.kind === 'system') {
-      // A system message appearing mid-thread is a real event, shown as one:
-      // a full-width card, no axis, visually distinct from both other roles.
-      list.appendChild(buildMessageCard(c, b.messages[0], 'system', lang, false, fellBack));
-      return;
-    }
-    list.appendChild(buildTurn(c, b, lang, fellBack));
+  conv.turns.forEach(function (t) {
+    list.appendChild(buildTurn(c, t, lang, fellBack));
   });
-
   body.appendChild(list);
 
   if (fellBack.any) {
@@ -1090,12 +1069,9 @@ function buildTurn(c, turn, lang, fellBack) {
   var wrap = document.createElement('div');
   wrap.className = 'conversation-turn' + (isProblem ? ' is-problem-turn' : '');
 
-  // Roles are demarked three ways at once: card class, the role label, and
-  // structural position — user above the axis, assistant below it.
-  turn.user.forEach(function (entry) {
-    wrap.appendChild(buildMessageCard(c, entry, 'user', lang, isProblem, fellBack));
-  });
-
+  /* The axis is the turn's HEADER, not a divider between its halves: a turn with
+     no assistant is common (an unanswered final prompt) and a mid-turn rule
+     would dangle over nothing. */
   var axis = document.createElement('div');
   axis.className = 'turn-axis';
   var num = document.createElement('span');
@@ -1110,14 +1086,36 @@ function buildTurn(c, turn, lang, fellBack) {
   }
   wrap.appendChild(axis);
 
-  var stack = document.createElement('div');
-  stack.className = 'assistant-stack';
-  // Several assistant messages may share one message_id: they stack in file
-  // order as separate cards. That is what the stack is for.
-  turn.assistant.forEach(function (entry) {
-    stack.appendChild(buildMessageCard(c, entry, 'assistant', lang, isProblem, fellBack));
+  /* One rule for `system` everywhere, position-independent: a collapsed block at
+     the top of the turn the messages were buffered into. */
+  if (turn.systems.length) {
+    var det = document.createElement('details');
+    det.className = 'system-block';
+    var sum = document.createElement('summary');
+    sum.textContent = 'system (' + turn.systems.length + ')';
+    det.appendChild(sum);
+    turn.systems.forEach(function (entry) {
+      det.appendChild(buildMessageCard(c, entry, 'system', lang, false, fellBack));
+    });
+    wrap.appendChild(det);
+  }
+
+  // Roles are demarked three ways at once: card class, the role label, and
+  // structural position — systems, then user, then the assistant stack.
+  turn.user.forEach(function (entry) {
+    wrap.appendChild(buildMessageCard(c, entry, 'user', lang, isProblem, fellBack));
   });
-  wrap.appendChild(stack);
+
+  if (turn.assistant.length) {
+    var stack = document.createElement('div');
+    stack.className = 'assistant-stack';
+    // Several consecutive assistant messages stack in file order as separate
+    // cards. That is what the stack is for.
+    turn.assistant.forEach(function (entry) {
+      stack.appendChild(buildMessageCard(c, entry, 'assistant', lang, isProblem, fellBack));
+    });
+    wrap.appendChild(stack);
+  }
 
   return wrap;
 }
